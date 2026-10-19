@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.13
+// @version      0.2.14
 // @description  RP 대화를 바탕으로 가상의 핸드폰·컴퓨터·커뮤니티·뉴스·위키·실시간톡·X·일기를 생성하고 열람하는 개인용 뷰어.
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.13';
+  const VERSION = '0.2.14';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -484,17 +484,6 @@
     const labels=SIZE_PREVIEW_NAMES[kind]||{};
     return Object.entries(spec||{}).map(([key,num])=>`${labels[key]||key} ${num}개`).join(' · ');
   }
-  function sizePreview(kind,selected) {
-    return `<div data-size-preview class="size-preview"><div class="size-preview-head"><strong>분량별 생성 목표 · ${text(typeOf(kind).label,40)}</strong><small>단계를 누르면 선택돼.</small></div>
-      <div class="size-preview-list">${Object.entries(OUTPUT_SIZES).map(([level,option])=>`<button type="button" data-act="choose-size" data-size="${level}" class="size-preview-option ${selected===level?'selected':''}" aria-pressed="${selected===level?'true':'false'}" ${state.busy?'disabled':''}><span class="size-preview-level">${text(option.label,40)}</span><span class="size-preview-count">${text(sizePreviewText(kind,level),220)}</span>${selected===level?'<span class="size-preview-selected">✓ 선택</span>':''}</button>`).join('')}</div>
-      <div class="size-preview-foot">생성 목표 개수이며 실제 결과는 모델 응답에 따라 달라질 수 있어.</div>
-    </div>`;
-  }
-  function updateSizePreview() {
-    const old=panel.querySelector('[data-size-preview]');
-    if(old)old.outerHTML=sizePreview(state.type,outputSize(state.settings.outputSize));
-  }
-
     function mergeUnique(dest,source,key) {
     const seen=new Set(dest.map(v=>String(v?.[key]||'').trim()).filter(Boolean));
     for (const item of arr(source)) {
@@ -904,9 +893,28 @@
   .stage .preview{height:calc(100dvh - 156px)}
 }
 
+/* v0.2.14 · compact generation controls and accessible help */
+.estimate-compact{display:flex;flex-direction:column;gap:7px;line-height:1.45;padding:12px 14px}
+.estimate-compact>b{font-size:14px;margin-bottom:2px}
+.estimate-summary-row{display:flex;justify-content:space-between;align-items:baseline;gap:9px;flex-wrap:wrap;font-size:12px}
+.estimate-summary-row span{color:#cfdaed}.estimate-summary-row strong{color:white;font-size:12px;overflow-wrap:anywhere}
+.estimate-summary-price{font-weight:850;font-size:19px;color:#f0cd89;margin:3px 0}
+.estimate-compact small{font-size:11px;line-height:1.55;color:#becbdf}
+.field select[data-field="outputSize"]{max-width:100%;width:100%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;min-width:0}
+.help-trigger{min-width:48px}
+.help-popover{position:absolute;right:15px;top:70px;width:min(460px,calc(100% - 30px));max-height:min(72dvh,680px);overflow-y:auto;overscroll-behavior:contain;z-index:2147483005;border:1px solid #7e8baf;border-radius:14px;background:#17243a;color:#f7f9ff;box-shadow:0 16px 40px #000b;padding:15px 17px;font-size:13px;line-height:1.7}
+.help-title{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:16px;margin-bottom:7px}
+.help-title button{flex:none}
+.help-popover section{border-top:1px solid #425473;padding:10px 0 4px}
+.help-popover section>b{font-size:14px;color:#f3e3b2}
+.help-popover p{margin:5px 0 10px;color:#e2eafa;overflow-wrap:anywhere}
+.global-delete-confirm{padding:12px;background:#35242e;border:1px solid #b65d72;border-radius:9px;display:flex;flex-direction:column;gap:9px}
+.global-delete-confirm p{margin:0;font-size:12px;color:#f8dfdf;line-height:1.55}
+@media(max-width:1200px){.help-popover{top:56px;max-height:calc(100dvh - 68px)}.header .head-actions{gap:4px}.header .head-actions button{padding:7px 9px;font-size:12px}}
+
 `;
 
-  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
+  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, helpOpen:false, globalDeleteConfirm:null, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
   const host = document.createElement('div');
   host.id = 'prwv-root';
   const root = host.attachShadow({ mode:'closed' });
@@ -988,16 +996,17 @@
     const input=singleInput*requestCount;
     const estimateOutput=estimatedOutputTokens();
     const thinkingAssumption=estimateThinkingTokens(model,state.settings.thinkingLevel,requestCount);
-    // 구간별 입력 단가 기준은 총합이 아닌 개별 API 요청의 입력 토큰 수다.
-    const billedUnit=estimateBill(model,singleInput,(estimateOutput+thinkingAssumption)/requestCount);
-    const cost=billedUnit==null?null:billedUnit*requestCount;
-    const baseUnit=estimateBill(model,singleInput,estimateOutput/requestCount);
-    const costWithoutThinking=baseUnit==null?null:baseUnit*requestCount;
-    const status=q?.error?'RP 본문 자동 조회 실패 · 턴당 450자 가정':q?'실제 RP 글자 수 기준의 토큰 근사치':'대화 길이를 자동 확인하는 중 · 일단 턴당 450자 가정';
-    const rate=PRICES[model];
-    const activeRates=rate?(rate.afterDate&&new Date()>=new Date(rate.afterDate+'T00:00:00+09:00')?rate.afterRates:rate.above200k&&singleInput>200000?rate.above200k:[rate.input,rate.output]):null;
-    const rateText=activeRates?`입력 $${activeRates[0]} / 출력 $${activeRates[1]} (각 100만 토큰 기준)`:'이 모델은 등록된 요금표가 없어 금액을 계산하지 않음';
-    return `<div data-estimate-panel class="estimate-box"><b>예상 비용 · ${text(model,65)}</b><br><span class="subtle">${status}</span><br>추론 강도: ${text(THINKING_LABELS[validThinking(model,state.settings.thinkingLevel)],35)}<br>예상 총입력 약 ${fmtNumber(input)}토큰 · 본문 출력 가정 약 ${fmtNumber(estimateOutput)}토큰 · 추론 추가 가정 약 ${fmtNumber(thinkingAssumption)}토큰<br>계획된 분할 요청 약 ${requestCount}회 (정상 응답에 부족분이 있으면 추가 생성 없이 중단, HTTP 500 실패만 최대 5회 재시도)<br><span class="cost">${priced(cost,state.settings.krwPerUsd)}</span> <span class="subtle">유료 Standard 기준 · 1달러 ${fmtNumber(state.settings.krwPerUsd)}원 환산</span><br><span class="subtle">${rateText}</span><br><span class="subtle">본문 출력만 계산한 금액: ${priced(costWithoutThinking,state.settings.krwPerUsd)}. 추론 토큰 가정치는 단순 예시일 뿐 실제 소모량과 크게 다를 수 있어. 추가 호출 없이 로컬 계산하며 실제 청구액은 아니야.</span></div>`;
+    // 견적은 Gemini 호출 없이 브라우저에서만 계산하며, 전체 입력은 분할 호출 수를 반영한다.
+    const unit=estimateBill(model,singleInput,(estimateOutput+thinkingAssumption)/requestCount);
+    const cost=unit==null?null:unit*requestCount;
+    return `<div data-estimate-panel class="estimate-box estimate-compact">
+      <b>예상 비용</b>
+      <div class="estimate-summary-row"><span>모델</span><strong>${text(model,70)}</strong></div>
+      <div class="estimate-summary-row"><span>추론 강도</span><strong>${text(THINKING_LABELS[validThinking(model,state.settings.thinkingLevel)],35)}</strong></div>
+      <div class="estimate-summary-row"><span>예상 총입력</span><strong>약 ${fmtNumber(input)}토큰</strong></div>
+      <div class="estimate-summary-price">${priced(cost,state.settings.krwPerUsd)}</div>
+      <small>단순 예상치이며 실제 토큰 사용량·요금과 다를 수 있어. 자세한 기준은 상단 ? 도움말에서 확인해.</small>
+    </div>`;
   }
   function updateEstimatePanel() {
     const old=panel.querySelector('[data-estimate-panel]');
@@ -1040,12 +1049,9 @@
     return `<div class="card stack"><div class="section-header"><b>새 ${typeOf(state.type).label} 기록</b><span class="pill">수동 생성</span></div>
     <div class="row"><label class="toggle"><input type="radio" name="prwv-range" data-field="rangeMode" value="recent" ${s.rangeMode==='recent'?'checked':''}> 최근 N턴</label><label class="toggle"><input type="radio" name="prwv-range" data-field="rangeMode" value="range" ${s.rangeMode==='range'?'checked':''}> 시작~끝 턴</label></div>
     ${s.rangeMode==='recent' ? `<label class="field"><span>읽을 최근 RP 턴 수</span><input type="number" min="1" max="2000" data-field="recentTurns" value="${s.recentTurns}"></label>` : `<div class="row"><label class="field"><span>시작 턴</span><input type="number" min="1" data-field="rangeFrom" value="${s.rangeFrom}"></label><label class="field"><span>끝 턴</span><input type="number" min="1" data-field="rangeTo" value="${s.rangeTo}"></label></div>`}
-    <label class="field"><span>새 기록 생성 분량</span><select data-field="outputSize">${Object.entries(OUTPUT_SIZES).map(([key,option])=>`<option value="${key}" ${outputSize(s.outputSize)===key?'selected':''}>${option.label}</option>`).join('')}</select></label>
-    ${sizePreview(state.type,outputSize(s.outputSize))}
-    <div class="info">예상 API 호출 ${requestEstimateCount(state.type,outputSize(s.outputSize))}회 내외 · 정상 생성은 분할 호출되지만 오류가 나면 자동 재요청하지 않고 중단해.</div>
+    <label class="field"><span>새 기록 생성 분량 · 목표 개수</span><select data-field="outputSize" aria-label="생성 분량과 목표 개수">${Object.entries(OUTPUT_SIZES).map(([key,option])=>`<option value="${key}" ${outputSize(s.outputSize)===key?'selected':''}>${text(option.label,45)} · ${text(sizePreviewText(state.type,key),220)}</option>`).join('')}</select></label>
     ${estimatePanel()}
     <button class="button primary" data-act="generate" ${state.busy || !state.room ? 'disabled':''}>✦ ${typeOf(state.type).label} 생성하고 기록에 추가</button>
-    <div class="info">유저 캐릭터가 작성한 기록과 직접 대화 로그는 제외해. 실제 채팅 기록은 변경하지 않아.</div>
     ${state.busy ? `<div class="status"><span class="spinning">◌</span><span data-status>${text(state.status)}</span></div>` : ''}
     </div>`;
   }
@@ -1241,7 +1247,25 @@
     return `<div class="pane-title"><div><h3>🗃 기록 관리</h3></div></div><div class="stack"><div class="card stack"><div class="row"><button class="button slim" data-act="select-all">모두 선택</button><button class="button slim ghost" data-act="select-none">선택 해제</button><span class="subtle">${state.checked.size}개 선택됨 / 총 ${state.entries.length}개</span></div><button class="button danger" data-act="delete-selected" ${!state.checked.size?'disabled':''}>선택한 ${state.checked.size}개 삭제</button></div>
     <div class="card"><div class="archive" style="max-height:550px">${state.entries.slice(0,state.manageLimit).map(e=>`<label class="archive-row"><input type="checkbox" data-field="record-check" data-id="${esc(e.id)}" ${state.checked.has(e.id)?'checked':''}><span style="flex:1"><b>${typeOf(e.kind).icon} ${typeOf(e.kind).label} · ${text(e.person||'세계관',60)}</b><small>${text(e.rangeLabel,100)} · ${fmtDate(e.createdAt)}${usageSummary(e)}</small></span></label>`).join('')||'<p class="subtle">보관 기록이 없어.</p>'}${state.entries.length>state.manageLimit?`<button class="button slim" data-act="manage-more">더 보기 (${state.entries.length-state.manageLimit}개 남음)</button>`:''}</div></div>
     <div class="card"><b class="error">이 채팅방 전체 기록 삭제</b><p class="info">이 방에서 열람실이 생성한 가상 기록만 삭제해. 실제 채팅 기록과 프롬프트 설정은 그대로 유지돼.</p><button class="button danger" data-act="delete-all" ${state.entries.length && !state.busy?'':'disabled'}>이 방 기록 전부 지우기</button></div>
-    <div class="card stack" style="border-color:#a64659"><b class="error">모든 채팅방의 생성 기록 초기화</b><p class="info">이 방뿐 아니라 다른 모든 RP방의 월드뷰어 생성 기록을 한 번에 영구 삭제해. 실제 RP 대화, 채팅방별 프롬프트·설정, Gemini API 키는 삭제하지 않아. 확인할 때 전체 기록 수를 표시해.</p><button class="button danger" data-act="delete-global" ${state.busy?'disabled':''}>모든 방의 생성 기록 전부 지우기</button></div></div>`;
+    <div class="card stack" style="border-color:#a64659"><b class="error">모든 채팅방의 생성 기록 초기화</b><p class="info">모든 방에서 월드뷰어가 생성한 기록만 삭제해. 삭제한 기록은 복구할 수 없어. 실제 채팅 기록, 다른 확프 데이터, 프롬프트·API 설정에는 영향을 주지 않아.</p>
+    ${state.globalDeleteConfirm===null?`<button class="button danger" data-act="delete-global" ${state.busy?'disabled':''}>모든 방의 생성 기록 전부 지우기</button>`:
+      `<div class="global-delete-confirm" role="group" aria-label="모든 방의 기록 삭제 확인"><b class="error">${fmtNumber(state.globalDeleteConfirm)}개 기록을 정말 영구 삭제할까?</b><p>복구 불가능 · 다른 확프 및 실제 채팅에는 영향 없음</p><div class="row"><button class="button ghost" data-act="cancel-global">취소</button><button class="button danger" data-act="confirm-global" ${state.busy?'disabled':''}>확인하고 전체 삭제</button></div></div>`}</div></div>`;
+  }
+  function helpPanel() {
+    const s=state.settings, model=s.model;
+    const count=requestEstimateCount(state.type,outputSize(s.outputSize));
+    const p=PRICES[model];
+    const single=draftEstimateTokens();
+    const rates=p?(p.afterDate&&new Date()>=new Date(p.afterDate+'T00:00:00+09:00')?p.afterRates:p.above200k&&single>200000?p.above200k:[p.input,p.output]):null;
+    return `<aside class="help-popover" aria-label="열람실 이용 도움말"><div class="help-title"><b>ⓘ 가상세계 열람실 도움말</b><button class="button slim ghost" data-act="toggle-help" aria-label="도움말 닫기">✕</button></div>
+      <section><b>분량 선택</b><p>선택 목록의 개수는 생성 목표야. Gemini 출력 결과에 따라 실제 개수는 다를 수 있어. 일기는 단계별로 하루치 한 편의 본문 길이가 달라져.</p></section>
+      <section><b>예상 비용과 토큰</b><p>예상 총입력은 선택한 RP 대화, 활성화된 프롬프트, 분할 호출 횟수를 기준으로 계산해. RP를 읽기 전에는 턴당 450자로 가정하고, 읽은 뒤 실제 글자 수로 근사치를 갱신해. 비용 조회만으로 Gemini API를 호출하지는 않아.</p>
+      <p>현재 모델: ${text(model,75)} · 추론: ${text(THINKING_LABELS[validThinking(model,s.thinkingLevel)],35)}<br>선택 분량의 계획된 Gemini 요청 약 ${count}회 · 예상 출력 ${fmtNumber(estimatedOutputTokens())}토큰 · 별도 추론 ${fmtNumber(estimateThinkingTokens(model,s.thinkingLevel,count))}토큰 가정.</p>
+      <p>${rates?`선택 모델 유료 Standard 단가: 입력 $${rates[0]}, 출력 $${rates[1]} (100만 토큰당).`:'이 모델은 요금표가 등록되지 않아 비용을 계산하지 않아.'} 원화 금액은 프롬프트·API 설정의 수동 환율로 환산해. 실제 사용량·청구 금액과 차이가 날 수 있어.</p></section>
+      <section><b>호출·재시도</b><p>분할 생성 시 요청마다 비용이 발생할 수 있어. HTTP 500 실패만 최초 요청 포함 최대 5회 재시도하고, 정상 응답의 수량 부족, 파싱 실패, HTTP 429·503, 시간 초과 등은 자동 재시도하지 않아. 일부 성공한 내용은 보관해.</p></section>
+      <section><b>유저 캐릭터와 기록</b><p>유저 캐릭터가 직접 쓴 글·메시지·댓글을 AI가 대신 만들지 않고, 유저 캐릭터와 다른 인물의 직접 대화 로그도 생성 대상에서 제외해. 다른 인물이 유저 캐릭터를 검색하거나 언급·평가·기록하는 콘텐츠는 생성할 수 있어. 캐릭터 개인 일기에도 그 인물에 대한 생각이 자연스럽게 나올 수 있어.</p>
+      <p>생성 기록은 이 기기의 월드뷰어 전용 저장소에 RP방별로 보관돼. 실제 크랙 채팅 기록이나 다른 확프의 데이터는 변경하지 않아.</p></section>
+    </aside>`;
   }
   function render() {
     badge.className=[state.busy?'busy':'',state.open?'panel-open':''].filter(Boolean).join(' ');
@@ -1249,8 +1273,9 @@
     if (!state.open) { panel.hidden=true; return; }
     const scroller=panel.querySelector('.main'); const scrollPos=scroller?.scrollTop || 0;
     panel.hidden=false;
-    panel.innerHTML=`<div class="header"><div><h2>✦ 가상세계 열람실 <small>v${VERSION}</small></h2></div><div class="head-actions"><button class="icon-btn" data-act="close" title="접고 캐챗 계속하기">─ 접기</button></div></div>
+    panel.innerHTML=`<div class="header"><div><h2>✦ 가상세계 열람실 <small>v${VERSION}</small></h2></div><div class="head-actions"><button class="icon-btn help-trigger" data-act="toggle-help" aria-expanded="${state.helpOpen}" title="생성량·요금·기록 정책 설명">? 도움말</button><button class="icon-btn" data-act="close" title="접고 캐챗 계속하기">─ 접기</button></div></div>
       <div class="shell">${sidebar()}<main class="main">${!state.room?`<div class="empty"><b>현재 RP 채팅방을 열어 줘.</b><p>크랙의 개별 채팅방에서 사용할 수 있어.</p></div>`:state.tab==='settings'?settingsPage():state.tab==='manage'?managePage():viewerPage()}</main></div>`;
+    if(state.helpOpen)panel.insertAdjacentHTML('beforeend',helpPanel());
     panel.append(toastBox);
     panel.querySelector('.main').scrollTop=scrollPos;
     scheduleAutomaticEstimate();
@@ -1400,16 +1425,16 @@
     if (!btn || !root.contains(btn)) return;
     const act=btn.dataset.act;
     try {
-      if (act==='close') {state.open=false;render();return;}
+      if (act==='close') {state.open=false;state.helpOpen=false;render();return;}
+      if (act==='toggle-help') {state.helpOpen=!state.helpOpen;render();return;}
       if (act==='kind'||act==='settings-kind') {state.focused=false;state.tabletPane='viewer';state.quote=null;state.boardQuery=''; state.wikiQuery=''; state.wikiTab='article';state.xQuery='';state.xFilter='all';state.expandedX.clear();state.newsCategory='전체';state.type=btn.dataset.kind;state.view='home';state.selectedRecord='';state.subIndex=0;state.settings.lastTab=state.type;if(act==='kind')state.tab='viewer';await saveSettings();render();return; }
-      if (act==='tab') {state.tab=btn.dataset.tab;render();return;}
+      if (act==='tab') {state.tab=btn.dataset.tab;state.globalDeleteConfirm=null;render();return;}
       if (act==='person') {state.quote=null;state.settings.selectedPerson=btn.dataset.person;state.view='home';state.selectedRecord='';await saveSettings();render();return;}
       if (act==='add-person') {const el=panel.querySelector('[data-field=addPerson]');const n=String(el?.value||'').trim().slice(0,60);if(!n)return flash('이름을 입력해 줘.');state.settings.characters=[...new Set([...state.settings.characters,n])];state.settings.selectedPerson=n;await saveSettings();render();return;}
       if (act==='detect') {await detectPeople();return;}
       if (act==='models') {await refreshModels();return;}
       if (act==='focus') {state.focused=!state.focused;render();return;}
       if (act==='tablet-pane') {state.tabletPane=btn.dataset.pane==='controls'?'controls':'viewer';state.focused=false;render();panel.querySelector('.main')?.scrollTo(0,0);return;}
-      if (act==='choose-size') {if(state.busy)return;const next=outputSize(btn.dataset.size);state.settings.outputSize=next;state.quote=null;const selector=panel.querySelector('[data-field=outputSize]');if(selector)selector.value=next;queueSave();updateSizePreview();updateEstimatePanel();scheduleAutomaticEstimate();return;}
       if (act==='generate') {await generate();return;}
       if (act==='record') {state.boardQuery='';state.expandedX.clear();state.newsCategory='전체';state.selectedRecord=btn.dataset.id;state.view='home';state.subIndex=0;render();return;}
       if (act==='view') {state.view=btn.dataset.view;state.subIndex=0;render();return;}
@@ -1452,12 +1477,18 @@
         if (state.busy) return flash('생성이 끝난 후 기록을 삭제할 수 있어.');
         const count=await countAllRecords();
         if(!count){flash('모든 채팅방에 저장된 생성 기록이 없어.');return;}
-        const keyword=prompt(`모든 RP 채팅방의 가상 생성 기록 ${count.toLocaleString('ko-KR')}개를 영구 삭제합니다.\n실제 채팅과 프롬프트 설정은 유지됩니다.\n계속하려면 아래 입력창에 전체삭제를 정확히 입력하세요.`, '');
-        if(keyword!=='전체삭제') {if(keyword!==null)flash('문구가 일치하지 않아 삭제하지 않았어.');return;}
-        if(!confirm(`마지막 확인: 모든 채팅방의 생성 기록 ${count.toLocaleString('ko-KR')}개를 영구 삭제할까? 복구할 수 없어.`)) return;
+        state.globalDeleteConfirm=count;
+        render();
+        return;
+      }
+      if (act==='cancel-global') {state.globalDeleteConfirm=null;render();return;}
+      if (act==='confirm-global') {
+        if(state.busy||state.globalDeleteConfirm===null)return;
+        const count=await countAllRecords();
         await deleteAllGeneratedRecords();
+        state.globalDeleteConfirm=null;
         state.entries=[];state.checked.clear();state.selectedRecord='';state.view='home';
-        render();flash(`모든 채팅방 생성 기록 ${count.toLocaleString('ko-KR')}개 삭제 완료. 채팅과 설정은 유지돼.`,8500);
+        render();flash(`월드뷰어 생성 기록 ${fmtNumber(count)}개 삭제 완료. 실제 채팅과 다른 확프의 데이터는 유지돼.`,8500);
         return;
       }
     } catch(err) {showError(err);}
@@ -1474,7 +1505,7 @@
     if(field==='apiKey') {state.key=target.value;clearTimeout(saveTimer);saveTimer=setTimeout(()=>setGM(KEY_API,state.key).catch(showError),400);return;}
     if(field==='model'){state.settings.model=target.value;state.settings.thinkingLevel=validThinking(target.value,state.settings.thinkingLevel);state.quote=null;queueSave();render();return;}
     if(field==='thinkingLevel'){state.settings.thinkingLevel=validThinking(state.settings.model,target.value);state.quote=null;queueSave();updateEstimatePanel();scheduleAutomaticEstimate();return;}
-    if(field==='outputSize'){state.settings.outputSize=outputSize(target.value);state.quote=null;queueSave();updateSizePreview();updateEstimatePanel();scheduleAutomaticEstimate();return;}
+    if(field==='outputSize'){state.settings.outputSize=outputSize(target.value);state.quote=null;queueSave();updateEstimatePanel();scheduleAutomaticEstimate();return;}
     if(field==='userName'){state.settings.userName=target.value.slice(0,100);state.quote=null;queueSave();updateEstimatePanel();scheduleAutomaticEstimate();return;}
     if(field==='krwPerUsd'){const v=clamp(target.value,1,100000);if(target.value!==''){state.settings.krwPerUsd=v;queueSave();updateEstimatePanel();}return;}
     if(field==='prompt'){state.quote=null;const o=state.settings[target.dataset.group]?.[target.dataset.key];if(o){o.value=target.value;queueSave();scheduleAutomaticEstimate();}return;}
@@ -1486,7 +1517,7 @@
     if(field==='wikiSearch'||field==='xSearch'){render();return;}
     if(field==='krwPerUsd'){state.settings.krwPerUsd=clamp(target.value,1,100000);queueSave();updateEstimatePanel();return;}
     if(field==='rangeMode'){state.quote=null;state.settings.rangeMode=target.value;queueSave();render();return;}
-    if(field==='outputSize'){state.settings.outputSize=outputSize(target.value);state.quote=null;queueSave();updateSizePreview();updateEstimatePanel();scheduleAutomaticEstimate();return;}
+    if(field==='outputSize'){state.settings.outputSize=outputSize(target.value);state.quote=null;queueSave();updateEstimatePanel();scheduleAutomaticEstimate();return;}
     if(field==='toggle'){state.quote=null;const o=state.settings[target.dataset.group]?.[target.dataset.key];if(o){o.enabled=target.checked;queueSave();render();}return;}
     if(field==='record-check'){if(target.checked)state.checked.add(target.dataset.id);else state.checked.delete(target.dataset.id);render();return;}
   });
