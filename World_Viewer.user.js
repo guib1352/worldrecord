@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.14
+// @version      0.2.15
 // @description  RP 대화를 바탕으로 가상의 핸드폰·컴퓨터·커뮤니티·뉴스·위키·실시간톡·X·일기를 생성하고 열람하는 개인용 뷰어.
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.14';
+  const VERSION = '0.2.15';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -911,6 +911,63 @@
 .global-delete-confirm{padding:12px;background:#35242e;border:1px solid #b65d72;border-radius:9px;display:flex;flex-direction:column;gap:9px}
 .global-delete-confirm p{margin:0;font-size:12px;color:#f8dfdf;line-height:1.55}
 @media(max-width:1200px){.help-popover{top:56px;max-height:calc(100dvh - 68px)}.header .head-actions{gap:4px}.header .head-actions button{padding:7px 9px;font-size:12px}}
+
+
+/* v0.2.15 · Tablet landscape: show generation panel and reader side by side.
+   Only portrait tablets and phone-sized viewports retain the pane switch. */
+@media (min-width:701px) and (max-width:1200px) and (orientation:landscape),
+       (min-width:1201px) and (max-height:900px) and (orientation:landscape) and (pointer:coarse) {
+  .tablet-view-switch{display:none!important}
+  .viewer-layout,
+  .viewer-layout.focused,
+  .viewer-layout.tablet-controls,
+  .viewer-layout.tablet-reader{
+    display:grid!important;
+    grid-template-columns:minmax(230px,clamp(230px,26vw,295px)) minmax(0,1fr)!important;
+    gap:10px;
+    align-items:start;
+    min-width:0;
+  }
+  .viewer-layout>.controls,
+  .viewer-layout.focused>.controls,
+  .viewer-layout.tablet-reader>.controls,
+  .viewer-layout.tablet-controls>.controls,
+  .viewer-layout.no-record>.controls{
+    display:flex!important;
+    flex-direction:column;
+    width:100%;
+    min-width:0;
+    max-height:calc(100dvh - 132px);
+    padding-bottom:12px;
+    overflow-y:auto;
+    overflow-x:hidden;
+    scrollbar-width:thin;
+    overscroll-behavior:contain;
+  }
+  .viewer-layout>.stage,
+  .viewer-layout.tablet-reader>.stage,
+  .viewer-layout.tablet-controls>.stage,
+  .viewer-layout.no-record>.stage{
+    display:block!important;
+    min-width:0;
+  }
+  .focus-bar{display:none!important}
+  .stage .preview{
+    height:calc(100dvh - 160px);
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    padding:9px;
+  }
+  /* Device mockups maximize the available reader height, keeping internal scrolling. */
+  .iphone{
+    height:clamp(300px,calc(100dvh - 204px),730px);
+    width:min(100%,calc((100dvh - 204px)*0.615),435px);
+    margin:0 auto 3px;
+  }
+  .desktop{height:clamp(275px,calc(100dvh - 260px),745px)}
+  .diary-book{height:clamp(290px,calc(100dvh - 200px),760px)}
+}
 
 `;
 
