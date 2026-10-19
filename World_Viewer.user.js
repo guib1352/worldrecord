@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.16
+// @version      0.2.17
 // @description  RP 대화를 바탕으로 가상의 핸드폰·컴퓨터·커뮤니티·뉴스·위키·실시간톡·X·일기를 생성하고 열람하는 개인용 뷰어.
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.16';
+  const VERSION = '0.2.17';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -1045,6 +1045,66 @@
 @media (max-width:1200px), (max-height:900px) and (pointer:coarse){
   .diary-layout > .diary-sheet{height:100%;max-height:none;min-height:0}
 }
+
+/* v0.2.17 · Landscape tablets use the same LEFT vertical navigation as desktop.
+   The earlier tablet breakpoint set .shell/.side to a top horizontal tab strip;
+   restore BOTH outer columns and the inner viewer columns for wide landscapes.
+   Portrait/narrow layouts keep their compact navigation and pane switch. */
+@media (min-width:701px) and (orientation:landscape) {
+  .shell{
+    display:grid;
+    grid-template-columns:clamp(124px,15.5vw,176px) minmax(0,1fr);
+    grid-template-rows:minmax(0,1fr);
+    min-width:0;
+    min-height:0;
+    overflow:hidden;
+  }
+  .side{
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+    justify-content:flex-start;
+    gap:3px;
+    width:auto;
+    min-width:0;
+    min-height:0;
+    padding:10px 7px;
+    overflow-y:auto;
+    overflow-x:hidden;
+    border-right:1px solid var(--line);
+    border-bottom:0;
+    white-space:normal;
+    scrollbar-width:thin;
+    overscroll-behavior:contain;
+  }
+  .side button{
+    display:flex;
+    flex:0 0 auto;
+    width:100%;
+    min-width:0;
+    margin:0 0 2px;
+    padding:9px 8px;
+    text-align:left;
+    font-size:clamp(11px,1.12vw,14px);
+    line-height:1.35;
+    white-space:normal;
+    overflow-wrap:anywhere;
+    align-items:center;
+  }
+  .side .side-caption{
+    display:block;
+    flex:none;
+    margin:12px 7px 5px;
+    white-space:normal;
+  }
+  .main{
+    min-width:0;
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+  }
+}
+
 
 `;
 
