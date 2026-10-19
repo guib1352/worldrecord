@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.12
+// @version      0.2.13
 // @description  RP 대화를 바탕으로 가상의 핸드폰·컴퓨터·커뮤니티·뉴스·위키·실시간톡·X·일기를 생성하고 열람하는 개인용 뷰어.
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.12';
+  const VERSION = '0.2.13';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -815,9 +815,98 @@
 @media(max-width:1180px){.fb-layout,.np-grid{grid-template-columns:1fr}.fb-side{display:none}.np-sidebar{display:none}.fb-login{display:none}}
 @media(max-width:760px){.fb-identity{padding:12px;gap:11px}.fb-logo{font-size:27px}.fb-fakesearch{font-size:11px;padding:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fb-fakesearch span{font-size:15px;margin-right:4px}.fb-menubar{gap:14px;padding:12px;font-size:12px}.fb-layout,.np-grid{padding:12px;gap:5px}.fb-colheads,.fb-post-row{grid-template-columns:32px minmax(0,1fr) 65px 35px}.fb-colheads>span:nth-child(4),.fb-colheads>span:nth-child(6),.fb-post-row>.fb-date,.fb-post-row>.fb-num:last-child{display:none}.fb-post-name button{font-size:12px}.fb-article{padding:16px}.fb-directory{grid-template-columns:1fr}.fb-hotlist button{grid-template-columns:20px 1fr}.fb-hotlist button small{display:none}.np-nav{justify-content:start;padding:0 10px}.np-nav button{padding:10px}.np-hero{grid-template-columns:1fr}.np-hero-art{min-height:125px;padding:15px}.np-hero-art strong{font-size:32px}.np-hero-copy{padding:18px}.np-newsrow{grid-template-columns:minmax(0,1fr) 70px}.np-thumb{height:80px}.np-mast{padding:12px}.np-mast-small span:last-child{display:none}.pc-notes{padding:15px}.pc-notes-head>span{width:45px;height:45px;font-size:25px}}
 
+
+/* v0.2.13 · responsive tablet readers: fit viewport, scroll content INSIDE each device. */
+.tablet-view-switch{display:none}
+@media (max-width:1200px), (max-height:900px) and (pointer:coarse){
+  #panel{inset:5px;width:auto;max-width:none;height:calc(100dvh - 10px);border-radius:12px}
+  .header{height:54px;padding:8px 13px}.header h2{font-size:16px}.header small{font-size:10px}
+  .shell{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .side{display:flex;flex-direction:row;align-items:center;gap:4px;padding:6px 7px;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);white-space:nowrap;scrollbar-width:thin}
+  .side button{width:auto;flex:none;margin:0;padding:9px 11px;font-size:13px;white-space:nowrap}
+  .side .side-caption{display:none}
+  .main{min-height:0;min-width:0;padding:8px 10px;overflow-y:auto;overscroll-behavior:contain}
+  .pane-title{margin:0 0 5px}.pane-title h3{font-size:17px}
+  .tablet-view-switch{display:flex;gap:7px;margin:0 0 8px;position:relative;z-index:1}
+  .tablet-view-switch button{font-size:13px;min-height:35px;padding:7px 13px}
+  .viewer-layout,.viewer-layout.focused{display:block;min-width:0}
+  .viewer-layout>.controls,.viewer-layout.focused>.controls{display:none}
+  .viewer-layout>.stage{display:none;min-width:0}
+  .viewer-layout.tablet-controls>.controls{display:flex;max-height:none;overflow:visible;width:100%;padding-bottom:12px}
+  .viewer-layout.tablet-reader>.stage{display:block}
+  .viewer-layout.no-record>.stage{display:none}
+  .viewer-layout.no-record>.controls{display:flex}
+  .focus-bar{display:none}
+  .stage .preview{height:calc(100dvh - 215px);min-height:0;max-height:none;padding:10px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;border-radius:11px}
+  .stage .preview-title{margin:0 0 6px;padding:0;gap:5px;flex-wrap:wrap}
+  .stage .preview-title b{font-size:15px}.stage .preview-title .pill{font-size:10px;max-width:100%;overflow-wrap:anywhere}
+  /* Phone housing and screen use real available device height, not 790px. */
+  .iphone{width:min(100%,calc((100dvh - 280px)*0.615),435px);height:clamp(340px,calc(100dvh - 280px),730px);min-height:0;margin:0 auto 4px;padding:5px;border:4px solid #1b2028;border-radius:clamp(29px,4vh,49px)}
+  .phone-screen{height:100%;min-height:0;max-height:100%;border-radius:clamp(24px,3.4vh,40px)}
+  .ios-status{height:40px;padding:6px 24px 3px;font-size:12px}.ios-island{top:5px;height:24px;width:92px}
+  .ios-homescreen{padding:6px 12px 27px}.ios-widget{margin:clamp(6px,2vh,22px) 0 clamp(10px,2.8vh,29px)}
+  .ios-widget-date{font-size:13px}.ios-widget-time{font-size:clamp(36px,6.5vh,60px)}.ios-widget-caption{margin:4px auto;font-size:11px}
+  .ios-apps{column-gap:5px;row-gap:clamp(8px,2vh,17px)}
+  .ios-app{font-size:11px;gap:4px}.ios-app-icon{width:clamp(38px,6vh,61px);height:clamp(38px,6vh,61px);font-size:clamp(21px,3.4vh,32px);border-radius:13px}
+  .ios-dock{padding:8px 6px;gap:6px;border-radius:17px}.ios-dock .ios-app-icon{width:clamp(35px,5.5vh,53px);height:clamp(35px,5.5vh,53px);font-size:26px}
+  .ios-navbar{height:43px;grid-template-columns:62px 1fr 40px;padding:0 8px}.ios-navbar>b{font-size:14px}
+  .ios-scroll{min-height:0;padding:7px 11px 29px}.ios-pageheading{font-size:21px;margin:7px 3px 11px}
+  .ios-row{min-height:59px;padding:9px 7px}.ios-avatar{width:39px;height:39px;font-size:16px}
+  .ios-row b{font-size:14px}.ios-message>span{font-size:14px;padding:10px 12px}
+  /* Desktop monitor: internal app windows get the space remaining after taskbar/icons. */
+  .monitor{width:100%;padding:5px;border-width:4px;border-radius:10px;margin:0 auto;box-shadow:0 6px 22px #0008}
+  .desktop{height:clamp(315px,calc(100dvh - 340px),745px);min-height:0;padding:9px 10px 5px;overflow:hidden;border-radius:5px;display:flex;flex-direction:column}
+  .desktop-icons{grid-template-columns:repeat(4,minmax(55px,78px));gap:3px 7px;flex:none}
+  .desktop-icon{font-size:11px;min-height:60px;padding:2px;gap:1px}.desktop-icon i{font-size:25px;margin:0}
+  .desktop-window.pc-app-window{height:auto;min-height:0!important;max-height:none;flex:1;margin:5px auto;width:100%;overflow:hidden}
+  .desktop-window-title.pc-window-title{height:31px;padding:3px 7px}.pc-window-content{min-height:0;flex:1}
+  .desktop-taskbar{height:34px;min-height:34px;font-size:11px;margin-top:auto;padding:4px 9px;gap:6px}.desktop-taskbar button{font-size:17px}
+  .monitor-stand{display:none}
+  .pc-file-grid{padding:11px;gap:8px;grid-template-columns:repeat(auto-fill,minmax(80px,1fr))}.pc-file-grid span{font-size:34px}
+  .pc-history{padding:12px 15px}.pc-webpage{padding:12px 15px}.pc-mail-side{padding:9px 5px}.pc-mail-list button{min-height:45px;padding:9px 10px}
+  /* Diary: fixed book height, with independent index and page scrolling. */
+  .diary-book{width:100%;max-width:100%;height:clamp(320px,calc(100dvh - 285px),760px);min-height:0;display:flex;flex-direction:column;border:6px solid #6c4937;border-radius:11px;margin:0 auto}
+  .diary-cover{flex:none;padding:7px 12px;border-bottom-width:3px}.diary-cover h2{font-size:19px;margin:2px}.diary-deco{font-size:11px;letter-spacing:5px}.diary-cover span{font-size:10px}
+  .diary-layout{min-height:0;flex:1;overflow:hidden;grid-template-columns:minmax(155px,28%) minmax(0,1fr)}
+  .diary-index,.diary-sheet{max-height:none;min-height:0;height:100%;overflow-y:auto;overscroll-behavior:contain}
+  .diary-index{padding:9px}.diary-index-head{padding:6px 4px 10px}.diary-date{padding:8px;margin-bottom:5px}
+  .diary-sheet{padding:15px 21px}.diary-sheet-date{margin-top:14px}.diary-sheet h3{font-size:22px;margin:7px 0 12px}.diary-mood{margin-bottom:12px}
+  .diary-handwriting{font-size:16px;line-height:2.0}.diary-welcome{padding:25px 12px}.diary-line{margin:17px auto}
+  /* All website-like readers scroll inside the view instead of extending the main panel. */
+  .fboard,.newsportal,.wiki-site,.x-site,.web{min-height:0}
+  .wiki-content{min-height:0}.live-lines{height:min(48dvh,480px)}
+}
+@media (max-width:700px) and (orientation:portrait){
+  .main{padding:7px}.stage .preview{padding:6px;height:calc(100dvh - 205px)}
+  .diary-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .diary-index{height:auto;max-height:110px;display:flex;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:3px solid #b7966a;align-items:center;gap:7px;padding:6px}
+  .diary-index-head{flex:none;display:block;font-size:12px;padding:5px 8px}.diary-index-head span{display:block}
+  .diary-date{flex:0 0 145px;margin:0;padding:6px 8px;height:85px;overflow:hidden}.diary-date b{font-size:12px}.diary-date small,.diary-date span{font-size:11px}
+  .diary-sheet{height:100%;padding:13px}.diary-handwriting{font-size:15px;line-height:1.85}
+  .pc-mail{grid-template-columns:92px minmax(0,1fr)}.pc-mail-side>b{font-size:12px;margin:2px 4px 8px}.pc-mail-side button{padding:8px 5px;font-size:11px}
+  .pc-mail-list button b{flex-basis:70px}.pc-mail-list time{display:none}
+  .desktop-icons{grid-template-columns:repeat(4,minmax(40px,65px))}
+  .np-grid,.fb-layout{padding:10px}
+}
+@media (max-height:700px) and (pointer:coarse){
+  .ios-status{height:34px}
+  .ios-homescreen{padding:3px 10px 20px}
+  .ios-widget{margin:4px 0 8px}.ios-widget-time{font-size:clamp(27px,5.7vh,40px)}
+  .ios-widget-caption{margin:2px auto}.ios-apps{row-gap:5px}
+  .ios-app{gap:2px;font-size:10px}.ios-app-icon{width:clamp(31px,5.5vh,42px);height:clamp(31px,5.5vh,42px);font-size:23px;border-radius:10px}
+  .ios-dock{padding:5px;gap:3px}.ios-dock .ios-app-icon{width:35px;height:35px;font-size:23px}
+  .ios-homebar{bottom:5px}
+}
+@media (max-height:580px) and (pointer:coarse){
+  .iphone{height:calc(100dvh - 174px);width:min(100%,calc((100dvh - 174px)*0.615));min-height:290px}
+  .desktop{height:calc(100dvh - 185px);min-height:250px}
+  .diary-book{height:calc(100dvh - 180px);min-height:260px}
+  .stage .preview{height:calc(100dvh - 156px)}
+}
+
 `;
 
-  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, quote:null, modelOptions:MODEL_FALLBACK, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
+  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
   const host = document.createElement('div');
   host.id = 'prwv-root';
   const root = host.attachShadow({ mode:'closed' });
@@ -841,7 +930,7 @@
   function showError(err) { console.error('[가상세계 열람실]', err); flash('오류: ' + String(err?.message || err), 7000); }
   async function saveSettings() { if (state.room) await setGM(configKey(state.room), JSON.stringify(state.settings)); }
   async function loadRoom(room) {
-    state.room = room; state.selectedRecord = ''; state.checked.clear(); state.view = 'home';
+    state.room = room; state.selectedRecord = ''; state.checked.clear(); state.view = 'home'; state.tabletPane='viewer';
     if (!room) { state.entries=[];state.settings=defaultSettings(); render(); return; }
     try {
       const raw = await getGM(configKey(room), '');
@@ -967,8 +1056,13 @@
     </div>`;
   }
   function viewerPage() {
+    // Tablet: choose between the reader and generation/archive controls without
+    // forcing the reader to sit below several screens of settings.
+    const empty=!currentRecord();
+    const tabletControls=state.tabletPane==='controls'||empty;
     return `<div class="pane-title"><div><h3>${typeOf(state.type).icon} ${typeOf(state.type).label}</h3></div></div>
-      <div class="viewer-layout ${state.focused?'focused':''}"><div class="controls stack">${characterPicker()}${generatorControls()}${archiveList()}</div><div class="stage"><div class="focus-bar"><button class="button slim ghost" data-act="focus">${state.focused?'↙ 생성 설정 표시':'⛶ 열람 화면 크게'}</button></div>${preview()}</div></div>`;
+      <div class="tablet-view-switch" role="group" aria-label="태블릿 화면 전환"><button class="button slim ${!tabletControls?'primary':''}" data-act="tablet-pane" data-pane="viewer" ${empty?'disabled':''} aria-pressed="${!tabletControls}">▣ 열람 화면</button><button class="button slim ${tabletControls?'primary':''}" data-act="tablet-pane" data-pane="controls" aria-pressed="${tabletControls}">⚙ 생성·보관 기록</button></div>
+      <div class="viewer-layout ${state.focused?'focused':''} ${tabletControls?'tablet-controls':'tablet-reader'} ${empty?'no-record':''}"><div class="controls stack">${characterPicker()}${generatorControls()}${archiveList()}</div><div class="stage"><div class="focus-bar"><button class="button slim ghost" data-act="focus">${state.focused?'↙ 생성 설정 표시':'⛶ 열람 화면 크게'}</button></div>${preview()}</div></div>`;
   }
   const normalText = (s, max=10000) => `<div class="paragraph">${text(s,max)}</div>`;
   const titleline = (a,b='') => `<div class="preview-title"><b>${text(a,70)}</b>${b}</div>`;
@@ -1262,7 +1356,7 @@
       if (state.room===room) {
         state.entries.unshift(record);
         if (state.type===kind && (!typeOf(kind).person || state.settings.selectedPerson===person)) {
-          state.selectedRecord=record.id; state.view='home';
+          state.selectedRecord=record.id; state.view='home'; state.tabletPane='viewer';
         }
       }
       const usage=generated.usage||{};const total=integer(usage.totalTokenCount,0);
@@ -1307,13 +1401,14 @@
     const act=btn.dataset.act;
     try {
       if (act==='close') {state.open=false;render();return;}
-      if (act==='kind'||act==='settings-kind') {state.focused=false;state.quote=null;state.boardQuery=''; state.wikiQuery=''; state.wikiTab='article';state.xQuery='';state.xFilter='all';state.expandedX.clear();state.newsCategory='전체';state.type=btn.dataset.kind;state.view='home';state.selectedRecord='';state.subIndex=0;state.settings.lastTab=state.type;if(act==='kind')state.tab='viewer';await saveSettings();render();return; }
+      if (act==='kind'||act==='settings-kind') {state.focused=false;state.tabletPane='viewer';state.quote=null;state.boardQuery=''; state.wikiQuery=''; state.wikiTab='article';state.xQuery='';state.xFilter='all';state.expandedX.clear();state.newsCategory='전체';state.type=btn.dataset.kind;state.view='home';state.selectedRecord='';state.subIndex=0;state.settings.lastTab=state.type;if(act==='kind')state.tab='viewer';await saveSettings();render();return; }
       if (act==='tab') {state.tab=btn.dataset.tab;render();return;}
       if (act==='person') {state.quote=null;state.settings.selectedPerson=btn.dataset.person;state.view='home';state.selectedRecord='';await saveSettings();render();return;}
       if (act==='add-person') {const el=panel.querySelector('[data-field=addPerson]');const n=String(el?.value||'').trim().slice(0,60);if(!n)return flash('이름을 입력해 줘.');state.settings.characters=[...new Set([...state.settings.characters,n])];state.settings.selectedPerson=n;await saveSettings();render();return;}
       if (act==='detect') {await detectPeople();return;}
       if (act==='models') {await refreshModels();return;}
       if (act==='focus') {state.focused=!state.focused;render();return;}
+      if (act==='tablet-pane') {state.tabletPane=btn.dataset.pane==='controls'?'controls':'viewer';state.focused=false;render();panel.querySelector('.main')?.scrollTo(0,0);return;}
       if (act==='choose-size') {if(state.busy)return;const next=outputSize(btn.dataset.size);state.settings.outputSize=next;state.quote=null;const selector=panel.querySelector('[data-field=outputSize]');if(selector)selector.value=next;queueSave();updateSizePreview();updateEstimatePanel();scheduleAutomaticEstimate();return;}
       if (act==='generate') {await generate();return;}
       if (act==='record') {state.boardQuery='';state.expandedX.clear();state.newsCategory='전체';state.selectedRecord=btn.dataset.id;state.view='home';state.subIndex=0;render();return;}
