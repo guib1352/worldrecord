@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.15
+// @version      0.2.16
 // @description  RP 대화를 바탕으로 가상의 핸드폰·컴퓨터·커뮤니티·뉴스·위키·실시간톡·X·일기를 생성하고 열람하는 개인용 뷰어.
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.15';
+  const VERSION = '0.2.16';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -969,6 +969,83 @@
   .diary-book{height:clamp(290px,calc(100dvh - 200px),760px)}
 }
 
+
+/* v0.2.16 · No silent clipping: every PC application's content area scrolls.
+   The monitor keeps its tablet-sized outer frame; long text and rows stay reachable. */
+.pc-window-content{
+  display:flex;
+  flex-direction:column;
+  flex:1 1 auto;
+  min-width:0;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+}
+.pc-window-content > .pc-explorer-bar{flex:none}
+.pc-window-content > .pc-file-grid{
+  flex:1 1 auto;
+  min-height:0;
+  align-content:start;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+}
+.pc-window-content > .pc-file-list,
+.pc-window-content > .pc-file-doc{
+  flex:1 1 auto;
+  min-width:0;
+  min-height:0;
+  max-height:none;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+}
+.pc-window-content > .pc-navbtn{align-self:flex-start;flex:none}
+.pc-window-content > .pc-mail,
+.pc-window-content > .pc-browser,
+.pc-window-content > .pc-notes{
+  flex:1 1 auto;
+  min-height:0;
+  min-width:0;
+  max-height:100%;
+}
+.pc-mail-main,.pc-mail-list,.pc-mail-detail,.pc-browser .pc-history,
+.pc-browser .pc-webpage,.pc-notes,.pc-notes-list{
+  min-height:0;
+  overscroll-behavior:contain;
+}
+.pc-mail-list,.pc-mail-detail,.pc-browser .pc-history,.pc-browser .pc-webpage,
+.pc-notes{overflow-y:auto}
+.pc-file-doc .paragraph,.pc-mail-message,.pc-webpage-body,
+.pc-notes .paragraph{overflow-wrap:anywhere;white-space:pre-wrap}
+/* Diary: show its one entry immediately, without a redundant list/sidebar. */
+.diary-book{display:flex;flex-direction:column}
+.diary-cover{flex:none}
+.diary-layout{
+  display:flex;
+  flex:1 1 auto;
+  grid-template-columns:none;
+  grid-template-rows:none;
+  min-height:0;
+  min-width:0;
+  overflow:hidden;
+}
+.diary-layout > .diary-sheet{
+  flex:1 1 auto;
+  min-width:0;
+  min-height:0;
+  height:auto;
+  max-height:min(75dvh,850px);
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+}
+.diary-handwriting{overflow-wrap:anywhere;white-space:pre-wrap}
+@media (max-width:1200px), (max-height:900px) and (pointer:coarse){
+  .diary-layout > .diary-sheet{height:100%;max-height:none;min-height:0}
+}
+
 `;
 
   const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, helpOpen:false, globalDeleteConfirm:null, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
@@ -1127,7 +1204,9 @@
       <div class="tablet-view-switch" role="group" aria-label="태블릿 화면 전환"><button class="button slim ${!tabletControls?'primary':''}" data-act="tablet-pane" data-pane="viewer" ${empty?'disabled':''} aria-pressed="${!tabletControls}">▣ 열람 화면</button><button class="button slim ${tabletControls?'primary':''}" data-act="tablet-pane" data-pane="controls" aria-pressed="${tabletControls}">⚙ 생성·보관 기록</button></div>
       <div class="viewer-layout ${state.focused?'focused':''} ${tabletControls?'tablet-controls':'tablet-reader'} ${empty?'no-record':''}"><div class="controls stack">${characterPicker()}${generatorControls()}${archiveList()}</div><div class="stage"><div class="focus-bar"><button class="button slim ghost" data-act="focus">${state.focused?'↙ 생성 설정 표시':'⛶ 열람 화면 크게'}</button></div>${preview()}</div></div>`;
   }
-  const normalText = (s, max=10000) => `<div class="paragraph">${text(s,max)}</div>`;
+  // 상세 화면 본문에는 미리보기용 글자 수 제한을 적용하지 않는다.
+  const textFull = x => esc(String(x ?? ''));
+  const normalText = s => `<div class="paragraph">${textFull(s)}</div>`;
   const titleline = (a,b='') => `<div class="preview-title"><b>${text(a,70)}</b>${b}</div>`;
   const back = (to='home', label='‹ 뒤로') => `<button class="web-btn" data-act="back" data-to="${to}">${label}</button>`;
   function phoneView(data) {
@@ -1156,21 +1235,20 @@
       if(app==='calls') content=`<div class="ios-pageheading">최근 통화</div>${arr(data.calls).map(x=>`<div class="ios-row">${avatar(x.name)}<span class="ios-row-main"><b>${text(x.name,50)}</b><small>${text(x.kind,45)}</small></span><span class="ios-row-date">${text(x.time,28)}</span></div>`).join('')}`;
       if(app==='searches') content=`<div class="ios-pageheading">방문 및 검색 기록</div><div class="ios-searchpill">⌕　검색 및 방문 기록</div>${arr(data.searches).map(x=>`<div class="ios-row"><span class="ios-history-icon">⌕</span><span class="ios-row-main"><b>${text(x,180)}</b><small>검색한 내용</small></span></div>`).join('')}`;
       if(app==='notes') content=`<div class="ios-pageheading">메모 <span>${arr(data.notes).length}개</span></div>${arr(data.notes).map((x,i)=>`<button class="ios-row" data-act="phoneitem" data-index="${i}" data-source="notes"><span class="ios-notes-dot">▤</span><span class="ios-row-main"><b>${text(x.title,90)}</b><small>${text(x.body,130)}</small></span><span class="ios-row-date">›</span></button>`).join('')}`;
-      if(app==='social') content=`<div class="ios-pageheading">소셜 피드</div>${arr(data.social).map(x=>`<article class="ios-post"><div class="ios-post-author">${avatar(x.handle)}<span><b>@${text(x.handle,60)}</b><small>${text(x.time,70)}</small></span></div><p>${text(x.text,2600)}</p><div class="ios-engagement">♡ ${integer(x.likes)}　 ·　 ${arr(x.comments).length}개 댓글</div>${arr(x.comments).map(c=>`<div class="ios-post-reply"><b>${text(c.by,60)}</b> ${text(c.text,900)}</div>`).join('')}</article>`).join('')}`;
+      if(app==='social') content=`<div class="ios-pageheading">소셜 피드</div>${arr(data.social).map(x=>`<article class="ios-post"><div class="ios-post-author">${avatar(x.handle)}<span><b>@${text(x.handle,60)}</b><small>${text(x.time,70)}</small></span></div><p>${textFull(x.text)}</p><div class="ios-engagement">♡ ${integer(x.likes)}　 ·　 ${arr(x.comments).length}개 댓글</div>${arr(x.comments).map(c=>`<div class="ios-post-reply"><b>${text(c.by,60)}</b> ${textFull(c.text)}</div>`).join('')}</article>`).join('')}`;
       if(app==='photos') content=`<div class="ios-pageheading">모든 사진 <span>${arr(data.photos).length}장</span></div><div class="ios-photos">${arr(data.photos).map((x,i)=>`<button class="ios-photo" data-act="phoneitem" data-source="photos" data-index="${i}"><span>${text(x.emoji||'▣',6)}</span></button>`).join('')}</div>`;
       if(app==='phone-detail') {const photo=state.phoneSource==='photos';const item=arr(data[photo?'photos':'notes'])[state.subIndex]||{};content=photo?`<div class="ios-bigphoto">${text(item.emoji||'▣',6)}</div><div class="ios-document"><h3>${text(item.caption,220)}</h3><small>${text(item.date,55)}</small></div>`:`<div class="ios-document"><h2>${text(item.title,120)}</h2>${normalText(item.body,15000)}</div>`;}
-      if(app==='thread'){const t=arr(data.messages)[state.subIndex]||{};content=`<div class="ios-contact">${avatar(t.person)}<b>${text(t.person,50)}</b><small>메시지 대화</small></div><div class="ios-bubbles">${arr(t.thread).map(m=>`<div class="ios-message ${m.from==='me'?'out':'in'}"><span>${text(m.text,3000)}</span><small>${text(m.time,30)}</small></div>`).join('')}</div>`;}
+      if(app==='thread'){const t=arr(data.messages)[state.subIndex]||{};content=`<div class="ios-contact">${avatar(t.person)}<b>${text(t.person,50)}</b><small>메시지 대화</small></div><div class="ios-bubbles">${arr(t.thread).map(m=>`<div class="ios-message ${m.from==='me'?'out':'in'}"><span>${textFull(m.text)}</span><small>${text(m.time,30)}</small></div>`).join('')}</div>`;}
       if(!content.trim()) content='<div class="ios-empty">저장된 기록이 없어.</div>';
       inside=`<div class="ios-appscreen"><div class="ios-navbar"><button data-act="back" data-to="${goBack}" class="ios-back">‹ <span>뒤로</span></button><b>${text(app==='thread'?arr(data.messages)[state.subIndex]?.person:app==='phone-detail'?'상세 기록':heading,75)}</b><span class="ios-navend">•••</span></div><div class="ios-scroll">${content}</div></div>`;
     }
     return `<div class="iphone"><div class="phone-screen"><div class="ios-status"><span>${time}</span><div class="ios-island"></div><span class="ios-signal">▂▄▆　◉　▰</span></div>${inside}${nav}</div></div>`;
   }
   function diaryView(data) {
-    const entries=arr(data.entries);
-    const index=Math.max(0,Math.min(entries.length-1,state.subIndex));
-    const chosen=entries[index]||{};
-    const page=state.view==='entry';
-    return `<div class="diary-book"><div class="diary-cover"><div class="diary-deco">✿　✾　✿</div><h2>${text(data.owner||'누군가',70)}의 일기장</h2><span>비공개 · 개인 기록</span></div><div class="diary-layout"><aside class="diary-index"><div class="diary-index-head">▤　일기 목록 <span>${entries.length}편</span></div>${entries.map((item,i)=>`<button class="diary-date ${page&&index===i?'active':''}" data-act="diary-entry" data-index="${i}"><small>${text(item.date||'',55)}</small><b>${text(item.title||'제목 없는 일기',100)}</b><span>${text(item.mood||'',40)}</span></button>`).join('')}</aside><main class="diary-sheet">${page?`<button class="diary-back" data-act="back" data-to="home">‹ 목록으로</button><span class="diary-sheet-date">${text(chosen.date||'',65)} · ${text(chosen.weather||'',40)}</span><h3>${text(chosen.title||'그날의 기록',170)}</h3><div class="diary-mood">그날의 기분　${text(chosen.mood||'평범함',65)}</div><div class="diary-handwriting">${text(chosen.body||'',18000)}</div><div class="diary-sign">${text(data.owner||'',60)}</div>`:`<div class="diary-welcome"><span>Dear diary</span><h3>나의 작은 기록들</h3><p>왼쪽 날짜를 눌러 일기를 펼쳐 봐.</p><div class="diary-line">${entries.slice(0,3).map((v,i)=>`<button data-act="diary-entry" data-index="${i}"><span>${text(v.date||'',45)}</span><b>${text(v.title||'',100)}</b> ›</button>`).join('')}</div></div>`}</main></div></div>`;
+    // 생성 기록 한 건에는 하루치 일기 한 편만 저장한다.
+    // 여러 날의 일기는 왼쪽 '보관된 일기장 기록'에서 기록별로 선택한다.
+    const chosen=arr(data.entries)[0]||{};
+    return `<div class="diary-book"><div class="diary-cover"><div class="diary-deco">✿　✾　✿</div><h2>${text(data.owner||'누군가',70)}의 일기장</h2><span>비공개 · 개인 기록</span></div><div class="diary-layout"><main class="diary-sheet"><span class="diary-sheet-date">${text(chosen.date||'',65)}${chosen.weather?' · '+text(chosen.weather,40):''}</span><h3>${text(chosen.title||'그날의 기록',170)}</h3><div class="diary-mood">그날의 기분　${text(chosen.mood||'평범함',65)}</div><div class="diary-handwriting">${textFull(chosen.body||'')}</div><div class="diary-sign">${text(data.owner||'',60)}</div></main></div></div>`;
   }
   function pcView(data) {
     const apps=[['folders','📁','파일 탐색기'],['emails','✉','메일'],['browser','◉','인터넷'],['notes','▤','나의 문서']];
@@ -1190,12 +1268,12 @@
       winName='메일';
       const folder=state.pcMailFolder||'inbox';
       const visible=arr(data.emails).map((m,i)=>({...m,__idx:i})).filter(m=>folder==='all'||folder==='starred'&&m.starred||folder==='sent'&&m.from===data.owner||folder==='inbox'&&m.from!==data.owner);
-      content=`<div class="pc-mail"><aside class="pc-mail-side"><b>✉ 우편함</b>${[['inbox','받은편지함'],['sent','보낸편지함'],['starred','중요편지함'],['all','전체메일']].map(([id,label])=>`<button class="${folder===id?'active':''}" data-act="mail-folder" data-folder="${id}">${label} <span>${id==='all'?arr(data.emails).length:id==='inbox'?arr(data.emails).filter(m=>m.from!==data.owner).length:id==='sent'?arr(data.emails).filter(m=>m.from===data.owner).length:arr(data.emails).filter(m=>m.starred).length}</span></button>`).join('')}</aside><section class="pc-mail-main"><div class="pc-mail-toolbar">${view==='mail-detail'?`<button data-act="back" data-to="emails">← 메일 목록</button>`:'<b>메일 목록</b>'}</div>${view==='mail-detail'?`<div class="pc-mail-detail"><h2>${text(mail.subject,220)}</h2><div class="pc-mail-meta"><div class="pc-mail-avatar">${text(String(mail.from||'?')[0])}</div><div><b>${text(mail.from||'보낸 사람',110)}</b><small>받는 사람: ${text(mail.to||data.owner||'',90)}</small></div><time>${text(mail.date,75)}</time></div><div class="pc-mail-message">${text(mail.body,22000)}</div></div>`:`<div class="pc-mail-list">${visible.map(m=>`<button data-act="pcitem" data-index="${m.__idx}"><span class="pc-mail-star">${m.starred?'★':'☆'}</span><b>${text(m.from||'',90)}</b><span class="pc-mail-subject">${text(m.subject,120)}<small>　${text(m.body,80)}</small></span><time>${text(m.date,55)}</time></button>`).join('')||'<p class="pc-placeholder">이 폴더에는 메일이 없어.</p>'}</div>`}</section></div>`;
+      content=`<div class="pc-mail"><aside class="pc-mail-side"><b>✉ 우편함</b>${[['inbox','받은편지함'],['sent','보낸편지함'],['starred','중요편지함'],['all','전체메일']].map(([id,label])=>`<button class="${folder===id?'active':''}" data-act="mail-folder" data-folder="${id}">${label} <span>${id==='all'?arr(data.emails).length:id==='inbox'?arr(data.emails).filter(m=>m.from!==data.owner).length:id==='sent'?arr(data.emails).filter(m=>m.from===data.owner).length:arr(data.emails).filter(m=>m.starred).length}</span></button>`).join('')}</aside><section class="pc-mail-main"><div class="pc-mail-toolbar">${view==='mail-detail'?`<button data-act="back" data-to="emails">← 메일 목록</button>`:'<b>메일 목록</b>'}</div>${view==='mail-detail'?`<div class="pc-mail-detail"><h2>${text(mail.subject,220)}</h2><div class="pc-mail-meta"><div class="pc-mail-avatar">${text(String(mail.from||'?')[0])}</div><div><b>${text(mail.from||'보낸 사람',110)}</b><small>받는 사람: ${text(mail.to||data.owner||'',90)}</small></div><time>${text(mail.date,75)}</time></div><div class="pc-mail-message">${textFull(mail.body)}</div></div>`:`<div class="pc-mail-list">${visible.map(m=>`<button data-act="pcitem" data-index="${m.__idx}"><span class="pc-mail-star">${m.starred?'★':'☆'}</span><b>${text(m.from||'',90)}</b><span class="pc-mail-subject">${text(m.subject,120)}<small>　${text(m.body,80)}</small></span><time>${text(m.date,55)}</time></button>`).join('')||'<p class="pc-placeholder">이 폴더에는 메일이 없어.</p>'}</div>`}</section></div>`;
     } else if(view==='browser'||view==='browser-page') {
       winName='인터넷 브라우저';
       const query=state.pcBrowserQuery.toLocaleLowerCase('ko-KR').trim();
       const history=browsing.map((x,i)=>({...x,__idx:i})).filter(x=>!query||[x.title,x.url,x.summary,x.query].join(' ').toLocaleLowerCase('ko-KR').includes(query));
-      content=`<div class="pc-browser"><div class="pc-browser-tabs"><span class="active">◉ ${view==='browser-page'?text(page.title,60):'방문 기록'}</span><span class="pc-plus">＋</span></div><div class="pc-browser-toolbar"><button data-act="back" data-to="browser">←</button><button data-act="back" data-to="browser">↻</button><div class="pc-url">⌕　${view==='browser-page'?text(page.url||'방문한 페이지',190):'chrome://history'}</div><span>☆　⋮</span></div>${view==='browser-page'?`<div class="pc-webpage"><div class="pc-webpage-address">${text(page.url||'',220)}</div><h2>${text(page.title,220)}</h2><div class="pc-webpage-body">${text(page.summary||'내용이 없습니다.',20000)}</div><button data-act="back" data-to="browser">◂ 검색·방문 기록으로</button></div>`:`<div class="pc-history"><div class="pc-history-heading"><span>◷</span><div><h2>방문 기록</h2><p>이 기기에 남아 있는 검색 및 방문 기록</p></div></div><div class="pc-history-search">⌕　<input data-field="pcBrowserSearch" value="${esc(state.pcBrowserQuery)}" placeholder="방문 사이트 또는 검색어 검색"></div><b>방문한 사이트</b>${history.map(h=>`<button class="pc-history-row" data-act="pcitem" data-index="${h.__idx}"><span class="pc-history-ico">◉</span><div><strong>${text(h.title||'제목 없음',140)}</strong><small>${text(h.query?'검색어: '+h.query:(h.url||''),160)}</small></div><span>›</span></button>`).join('')||'<p class="pc-placeholder">검색 결과가 없어.</p>'}</div>`}</div>`;
+      content=`<div class="pc-browser"><div class="pc-browser-tabs"><span class="active">◉ ${view==='browser-page'?text(page.title,60):'방문 기록'}</span><span class="pc-plus">＋</span></div><div class="pc-browser-toolbar"><button data-act="back" data-to="browser">←</button><button data-act="back" data-to="browser">↻</button><div class="pc-url">⌕　${view==='browser-page'?text(page.url||'방문한 페이지',190):'chrome://history'}</div><span>☆　⋮</span></div>${view==='browser-page'?`<div class="pc-webpage"><div class="pc-webpage-address">${text(page.url||'',220)}</div><h2>${text(page.title,220)}</h2><div class="pc-webpage-body">${textFull(page.summary||'내용이 없습니다.')}</div><button data-act="back" data-to="browser">◂ 검색·방문 기록으로</button></div>`:`<div class="pc-history"><div class="pc-history-heading"><span>◷</span><div><h2>방문 기록</h2><p>이 기기에 남아 있는 검색 및 방문 기록</p></div></div><div class="pc-history-search">⌕　<input data-field="pcBrowserSearch" value="${esc(state.pcBrowserQuery)}" placeholder="방문 사이트 또는 검색어 검색"></div><b>방문한 사이트</b>${history.map(h=>`<button class="pc-history-row" data-act="pcitem" data-index="${h.__idx}"><span class="pc-history-ico">◉</span><div><strong>${text(h.title||'제목 없음',140)}</strong><small>${text(h.query?'검색어: '+h.query:(h.url||''),160)}</small></div><span>›</span></button>`).join('')||'<p class="pc-placeholder">검색 결과가 없어.</p>'}</div>`}</div>`;
     } else if(view==='notes'||view==='note-detail') {
       winName='문서';
       content=view==='notes'?`<div class="pc-notes"><div class="pc-notes-head"><span>▤</span><div><h2>나의 문서</h2><small>이 컴퓨터에 저장된 개인 문서</small></div></div><div class="pc-file-list pc-notes-list">${arr(data.notes).map((n,i)=>`<button data-act="pcitem" data-index="${i}"><span>▤</span><b>${text(n.title,140)}</b><small>문서</small></button>`).join('')}</div></div>`:
@@ -1211,7 +1289,7 @@
     const side=`<aside class="fb-side"><div class="fb-side-title">▤ 갤러리 바로가기</div>${links||'<p>게시판이 없어.</p>'}</aside>`;
     let content='';
     if(state.view==='detail') {
-      content=`<div class="fb-breadcrumb"><button data-act="back" data-to="home">전체 갤러리</button> › <button data-act="back" data-to="posts">${text(section.name,70)}</button> › 게시글</div><div class="fb-titleline"><div><h2>${text(section.name||'이름 없는 갤러리',100)}</h2><small>갤러리</small></div><button data-act="back" data-to="posts">목록</button></div><div class="fb-article"><div class="fb-article-title"><span class="fb-post-label">일반</span><h1>${text(post.title,350)}</h1></div><div class="fb-article-meta"><b>${text(post.author||'ㅇㅇ',70)}</b><span>${text(post.time||'',70)}</span><span>조회 ${integer(post.views)}</span><span>추천 ${integer(post.likes)}</span></div><div class="fb-article-body">${normalText(post.body,30000)}</div><div class="fb-recommend"><span>▲</span><strong>${integer(post.likes)}</strong><small>추천</small></div><section class="fb-discussion"><h3>댓글 <span>${arr(post.comments).length}</span></h3>${arr(post.comments).map((c,i)=>`<div class="fb-comment"><span class="fb-cavatar">${i%3===0?'ㅇㅇ':'◉'}</span><div><strong>${text(c.author||'ㅇㅇ',85)}</strong><p>${text(c.text,4200)}</p></div><small>#${i+1}</small></div>`).join('')||'<p class="fb-noitems">아직 댓글이 없어.</p>'}</section><div class="fb-bottom"><button data-act="back" data-to="posts">‹ 글 목록으로 돌아가기</button></div></div>`;
+      content=`<div class="fb-breadcrumb"><button data-act="back" data-to="home">전체 갤러리</button> › <button data-act="back" data-to="posts">${text(section.name,70)}</button> › 게시글</div><div class="fb-titleline"><div><h2>${text(section.name||'이름 없는 갤러리',100)}</h2><small>갤러리</small></div><button data-act="back" data-to="posts">목록</button></div><div class="fb-article"><div class="fb-article-title"><span class="fb-post-label">일반</span><h1>${text(post.title,350)}</h1></div><div class="fb-article-meta"><b>${text(post.author||'ㅇㅇ',70)}</b><span>${text(post.time||'',70)}</span><span>조회 ${integer(post.views)}</span><span>추천 ${integer(post.likes)}</span></div><div class="fb-article-body">${normalText(post.body,30000)}</div><div class="fb-recommend"><span>▲</span><strong>${integer(post.likes)}</strong><small>추천</small></div><section class="fb-discussion"><h3>댓글 <span>${arr(post.comments).length}</span></h3>${arr(post.comments).map((c,i)=>`<div class="fb-comment"><span class="fb-cavatar">${i%3===0?'ㅇㅇ':'◉'}</span><div><strong>${text(c.author||'ㅇㅇ',85)}</strong><p>${textFull(c.text)}</p></div><small>#${i+1}</small></div>`).join('')||'<p class="fb-noitems">아직 댓글이 없어.</p>'}</section><div class="fb-bottom"><button data-act="back" data-to="posts">‹ 글 목록으로 돌아가기</button></div></div>`;
     }else if(state.view==='posts'){
       content=`<div class="fb-breadcrumb"><button data-act="back" data-to="home">전체 갤러리</button> › ${text(section.name,110)}</div><div class="fb-titleline"><div><h2>${text(section.name,110)}</h2><small>전체글 ${posts.length}</small></div><button data-act="back" data-to="home">갤러리 목록</button></div><div class="fb-board-bar"><b>전체글</b><span>${posts.length}건</span></div><div class="fb-board-table"><div class="fb-colheads"><span>번호</span><span>제목</span><span>글쓴이</span><span>작성일</span><span>조회</span><span>추천</span></div>${posts.map((p,i)=>`<div class="fb-post-row" data-post-row data-search="${esc((p.title||'')+' '+(p.author||'')+' '+(p.body||''))}"><span class="fb-idx">${posts.length-i}</span><div class="fb-post-name"><button data-act="post" data-index="${i}">${text(p.title,180)}</button><b>[${arr(p.comments).length}]</b></div><span class="fb-user">${text(p.author||'ㅇㅇ',40)}</span><span class="fb-date">${text(p.time,35)}</span><span class="fb-num">${integer(p.views)}</span><span class="fb-num">${integer(p.likes)}</span></div>`).join('')}</div><div class="fb-search"><span>⌕</span><input data-field="boardSearch" value="${esc(state.boardQuery)}" placeholder="제목·작성자·내용 검색"><button data-act="board-clear">초기화</button></div>`;
     }else{
@@ -1230,7 +1308,7 @@
     const sidebar=`<aside class="np-sidebar"><h3>많이 읽힌 기사</h3>${[...articles].slice(0,7).map((v,i)=>`<button data-act="webitem" data-index="${articles.indexOf(v)}"><span>${i+1}</span><div><b>${text(v.title,135)}</b><small>${text(v.category||'종합',40)}</small></div></button>`).join('')}</aside>`;
     let main='';
     if(state.view==='detail') {
-      main=`<div class="np-crumb"><button data-act="back" data-to="home">홈</button>　›　${text(p.category||'종합',60)}</div><article class="np-article"><span class="np-category">${text(p.category||'종합',50)}</span><h1>${text(p.title,320)}</h1><p class="np-deck">${text(p.lede,1700)}</p><div class="np-byline"><span>${text(p.author||'취재부',80)} 기자</span><time>${text(p.date||'',90)}</time></div><div class="np-article-body">${normalText(p.body,30000)}</div><div class="np-comments"><h3>독자 의견 <span>${arr(p.comments).length}</span></h3>${arr(p.comments).map(c=>`<div class="np-comment"><b>${text(c.author||'독자',65)}</b><p>${text(c.text,3200)}</p></div>`).join('')||'<p>등록된 의견이 없습니다.</p>'}</div><button class="np-back" data-act="back" data-to="home">‹ 뉴스 목록으로</button></article>`;
+      main=`<div class="np-crumb"><button data-act="back" data-to="home">홈</button>　›　${text(p.category||'종합',60)}</div><article class="np-article"><span class="np-category">${text(p.category||'종합',50)}</span><h1>${text(p.title,320)}</h1><p class="np-deck">${text(p.lede,1700)}</p><div class="np-byline"><span>${text(p.author||'취재부',80)} 기자</span><time>${text(p.date||'',90)}</time></div><div class="np-article-body">${normalText(p.body,30000)}</div><div class="np-comments"><h3>독자 의견 <span>${arr(p.comments).length}</span></h3>${arr(p.comments).map(c=>`<div class="np-comment"><b>${text(c.author||'독자',65)}</b><p>${textFull(c.text)}</p></div>`).join('')||'<p>등록된 의견이 없습니다.</p>'}</div><button class="np-back" data-act="back" data-to="home">‹ 뉴스 목록으로</button></article>`;
     } else {
       const [lead,...rest]=visible;
       main=`<div class="np-topsection"><b>${active==='전체'?'주요 뉴스':text(active,70)}</b></div>${lead?`<button class="np-hero" data-act="webitem" data-index="${articles.indexOf(lead)}"><div class="np-hero-art"><span>${text(lead.category||'종합',40)}</span><strong>현장<br>보도</strong></div><div class="np-hero-copy"><span class="np-category">오늘의 주요 보도</span><h2>${text(lead.title,260)}</h2><p>${text(lead.lede||lead.body,600)}</p><small>${text(lead.author,65)}　·　${text(lead.date,65)}</small></div></button>`:''}<div class="np-topsection"><b>전체 기사</b><span>${visible.length}건</span></div><div class="np-newslist">${rest.map((v,i)=>`<button class="np-newsrow" data-act="webitem" data-index="${articles.indexOf(v)}"><div><span class="np-category">${text(v.category||'종합',55)}</span><h3>${text(v.title,210)}</h3><p>${text(v.lede||v.body,290)}</p><small>${text(v.author||'취재부',55)}　·　${text(v.date,55)}</small></div><div class="np-thumb"><b>${String(i+1).padStart(2,'0')}</b><span>기사</span></div></button>`).join('')}</div>`;
@@ -1252,7 +1330,7 @@
     const sidebar=docs.slice(0,26).map((doc,i)=>`<button class="wiki-side-link ${detail&&state.subIndex===i?'active':''}" data-act="webitem" data-index="${i}">${text(doc.title,65)}</button>`).join('');
     const docText=detail?`<div class="wiki-article"><div class="wiki-title"><h1>${text(selected.title,160)}</h1></div>
       <div class="wiki-tabs"><button data-act="wiki-tab" data-tab="article" class="${tab==='article'?'selected':''}">문서</button><button data-act="wiki-tab" data-tab="discussion" class="${tab==='discussion'?'selected':''}">토론 <small>${arr(selected.discussion).length}</small></button></div>
-      ${tab==='article'?`<div class="wiki-article-content"><p class="wiki-summary">${text(selected.summary||'',2500)}</p><div class="wiki-toc"><b>목차</b>${arr(selected.sections).map((section,i)=>`<button data-act="wiki-jump" data-index="${i}">${i+1}. ${text(section.heading,90)}</button>`).join('')}</div>${arr(selected.sections).map((section,i)=>`<section class="wiki-section" data-wiki-section="${i}"><h2><span>${i+1}.</span> ${text(section.heading,180)}</h2>${normalText(section.body,16000)}</section>`).join('')}</div>`:`<div class="wiki-discussion"><h2>문서 토론</h2><p>이 문서에 관해 기록된 편집자들의 토론이야.</p>${arr(selected.discussion).map((c,i)=>`<div class="wiki-talk"><div><b>#${i+1} ${text(c.author||'익명',80)}</b><small>편집자</small></div><p>${text(c.text,2500)}</p></div>`).join('')||'<p>토론 기록이 없어.</p>'}</div>`}</div>`
+      ${tab==='article'?`<div class="wiki-article-content"><p class="wiki-summary">${textFull(selected.summary||'')}</p><div class="wiki-toc"><b>목차</b>${arr(selected.sections).map((section,i)=>`<button data-act="wiki-jump" data-index="${i}">${i+1}. ${text(section.heading,90)}</button>`).join('')}</div>${arr(selected.sections).map((section,i)=>`<section class="wiki-section" data-wiki-section="${i}"><h2><span>${i+1}.</span> ${text(section.heading,180)}</h2>${normalText(section.body,16000)}</section>`).join('')}</div>`:`<div class="wiki-discussion"><h2>문서 토론</h2><p>이 문서에 관해 기록된 편집자들의 토론이야.</p>${arr(selected.discussion).map((c,i)=>`<div class="wiki-talk"><div><b>#${i+1} ${text(c.author||'익명',80)}</b><small>편집자</small></div><p>${text(c.text,2500)}</p></div>`).join('')||'<p>토론 기록이 없어.</p>'}</div>`}</div>`
       :`<div class="wiki-landing"><h2>최근 문서 <small>${results.length}개</small></h2>${results.map((doc)=>{const i=docs.indexOf(doc);return `<button data-act="webitem" data-index="${i}" class="wiki-document-row"><span class="wiki-document-icon">▤</span><span><b>${text(doc.title,130)}</b><small>${text(doc.summary,185)}</small></span><span>›</span></button>`}).join('')||'<p>검색 결과가 없어.</p>'}</div>`;
     return `<div class="wiki-site"><div class="wiki-topbar"><div class="wiki-brand"><b>▥</b><span>${text(site,65)}</span></div><div class="wiki-search"><input data-field="wikiSearch" value="${esc(state.wikiQuery)}" placeholder="문서 제목 검색"><button data-act="wiki-search">⌕</button></div><button class="wiki-toplink" data-act="back" data-to="home">대문</button></div><div class="wiki-layout"><aside class="wiki-sidebar"><b>탐색</b><button data-act="back" data-to="home">⌂　대문</button><div class="wiki-sideline"></div><b>최근 문서</b>${sidebar}</aside><main class="wiki-content">${docText}</main></div></div>`;
   }
@@ -1265,14 +1343,14 @@
     const avatar=s=>`<div class="x-avatar">${text(String(s||'?').slice(0,1))}</div>`;
     const post=(p,i)=>{
       const open=state.expandedX.has(i),replies=arr(p.replies);
-      return `<article class="x-post" data-x-index="${i}"><div class="x-avatar-wrap">${avatar(p.author)}</div><div class="x-post-body"><div class="x-post-head"><b>${text(p.author,90)}</b><span>@${text(p.handle,55)} · ${text(p.time,50)}</span><span class="x-more">···</span></div><p>${text(p.text,4600)}</p><div class="x-actions"><button class="x-expand-replies" data-act="x-toggle" data-index="${i}" aria-expanded="${open}" title="답글 ${open?'접기':'펼치기'}"><span>◌</span> ${replies.length}개 답글　${open?'▴':'▾'}</button><span>⇄ ${integer(p.reposts)}</span><span>♡ ${integer(p.likes)}</span><span>⇧</span></div>${open?`<div class="x-replies"><div class="x-replies-head">답글 ${replies.length}개 <button data-act="x-toggle" data-index="${i}">접기　⌃</button></div>${replies.map(r=>`<div class="x-reply">${avatar(r.author)}<div><b>${text(r.author,75)}</b> <small>@${text(r.handle,60)}</small><p>${text(r.text,2000)}</p></div></div>`).join('')||'<p class="x-no-reply">아직 답글이 없어.</p>'}</div>`:''}</div></article>`;
+      return `<article class="x-post" data-x-index="${i}"><div class="x-avatar-wrap">${avatar(p.author)}</div><div class="x-post-body"><div class="x-post-head"><b>${text(p.author,90)}</b><span>@${text(p.handle,55)} · ${text(p.time,50)}</span><span class="x-more">···</span></div><p>${textFull(p.text)}</p><div class="x-actions"><button class="x-expand-replies" data-act="x-toggle" data-index="${i}" aria-expanded="${open}" title="답글 ${open?'접기':'펼치기'}"><span>◌</span> ${replies.length}개 답글　${open?'▴':'▾'}</button><span>⇄ ${integer(p.reposts)}</span><span>♡ ${integer(p.likes)}</span><span>⇧</span></div>${open?`<div class="x-replies"><div class="x-replies-head">답글 ${replies.length}개 <button data-act="x-toggle" data-index="${i}">접기　⌃</button></div>${replies.map(r=>`<div class="x-reply">${avatar(r.author)}<div><b>${text(r.author,75)}</b> <small>@${text(r.handle,60)}</small><p>${text(r.text,2000)}</p></div></div>`).join('')||'<p class="x-no-reply">아직 답글이 없어.</p>'}</div>`:''}</div></article>`;
     };
     const center=`<div class="x-feed-head"><div><b>${filter==='popular'?'인기 글':'홈'}</b></div></div><div class="x-feed-tabs"><button data-act="x-filter" data-filter="all" class="${filter==='all'?'active':''}">추천</button><button data-act="x-filter" data-filter="latest" class="${filter==='latest'?'active':''}">최신</button><button data-act="x-filter" data-filter="popular" class="${filter==='popular'?'active':''}">인기</button></div>${filtered.map(p=>post(p,posts.indexOf(p))).join('')||'<div class="x-noresults">일치하는 글이 없어.</div>'}`;
     return `<div class="x-site"><aside class="x-nav"><div class="x-symbol" aria-label="𝕏+"><i>𝕏<span>+</span></i></div><button data-act="back" data-to="home">⌂ <span>홈</span></button><button data-act="x-filter" data-filter="popular">⌕ <span>탐색</span></button><button data-act="x-filter" data-filter="latest">◷ <span>최신</span></button></aside><main class="x-timeline">${center}</main><aside class="x-right"><div class="x-searchbox">⌕ <input data-field="xSearch" value="${esc(state.xQuery)}" placeholder="글·계정 검색" /></div><div class="x-trending"><b>지금 화제</b>${trends.map((x,i)=>`<button data-act="x-trend" data-query="${esc(x.tag)}"><small>${i+1} · 화제</small><strong>${text(x.tag,90)}</strong><small>${text(x.count,30)} 게시물</small></button>`).join('')}</div></aside></div>`;
   }
   function comments(x) { return `<div class="web-comments"><b>댓글 · ${arr(x).length}</b>${arr(x).map(c=>`<div class="web-comment"><b>${text(c.author||c.by||'',60)}</b> ${text(c.text,1300)}</div>`).join('')}</div>`; }
   function liveView(d) {
-    return `<div class="web" style="background:#10182a"><div class="web-body"><div class="live-tv"><small>● LIVE</small><p><strong>${text(d.show||'실시간톡',130)}</strong></p><small>${text(d.episode,170)}</small></div><div class="live-lines">${arr(d.chat).map(x=>`<div class="live-line ${integer(x.donation)>0?'gift':''}"><small>${text(x.time,18)}</small><b>${text(x.user,65)}</b> ${text(x.text,1300)}${integer(x.donation)>0?` <span style="color:#f2cb80">₩${integer(x.donation).toLocaleString()}</span>`:''}</div>`).join('')}</div>${arr(d.highlights).length?`<div class="live-highlights"><b>명장면</b>${arr(d.highlights).map(x=>`<div class="card" style="margin:9px 0"><b>${text(x.title,160)}</b>${normalText(x.text,1700)}</div>`).join('')}</div>`:''}</div></div>`;
+    return `<div class="web" style="background:#10182a"><div class="web-body"><div class="live-tv"><small>● LIVE</small><p><strong>${text(d.show||'실시간톡',130)}</strong></p><small>${text(d.episode,170)}</small></div><div class="live-lines">${arr(d.chat).map(x=>`<div class="live-line ${integer(x.donation)>0?'gift':''}"><small>${text(x.time,18)}</small><b>${text(x.user,65)}</b> ${textFull(x.text)}${integer(x.donation)>0?` <span style="color:#f2cb80">₩${integer(x.donation).toLocaleString()}</span>`:''}</div>`).join('')}</div>${arr(d.highlights).length?`<div class="live-highlights"><b>명장면</b>${arr(d.highlights).map(x=>`<div class="card" style="margin:9px 0"><b>${text(x.title,160)}</b>${normalText(x.text,1700)}</div>`).join('')}</div>`:''}</div></div>`;
   }
   function preview() {
     const r=currentRecord();
