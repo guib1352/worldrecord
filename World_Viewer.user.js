@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.11
+// @version      0.2.12
 // @description  RP 대화를 바탕으로 가상의 핸드폰·컴퓨터·커뮤니티·뉴스·위키·실시간톡·X·일기를 생성하고 열람하는 개인용 뷰어.
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.11';
+  const VERSION = '0.2.12';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -203,6 +203,31 @@
       ids.forEach(id => store.delete(id));
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // 채팅방에 상관없이 열람실에서 생성한 기록 수만 확인한다.
+  async function countAllRecords() {
+    const db = await database();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('records', 'readonly');
+      const q = tx.objectStore('records').count();
+      q.onsuccess = () => resolve(q.result);
+      q.onerror = () => reject(q.error || new Error('전체 기록 개수를 확인할 수 없습니다.'));
+      tx.onerror = () => reject(tx.error || new Error('전체 기록 개수를 확인할 수 없습니다.'));
+    });
+  }
+
+  // 현재 채팅방만이 아니라 모든 채팅방의 생성 기록을 일괄 삭제한다.
+  // 실제 채팅, API 키 및 채팅방별 프롬프트/설정은 건드리지 않는다.
+  async function deleteAllGeneratedRecords() {
+    const db = await database();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      tx.objectStore('records').clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('전체 생성 기록 삭제에 실패했습니다.'));
+      tx.onabort = () => reject(tx.error || new Error('전체 생성 기록 삭제가 취소되었습니다.'));
     });
   }
 
@@ -1121,7 +1146,8 @@
   function managePage() {
     return `<div class="pane-title"><div><h3>🗃 기록 관리</h3></div></div><div class="stack"><div class="card stack"><div class="row"><button class="button slim" data-act="select-all">모두 선택</button><button class="button slim ghost" data-act="select-none">선택 해제</button><span class="subtle">${state.checked.size}개 선택됨 / 총 ${state.entries.length}개</span></div><button class="button danger" data-act="delete-selected" ${!state.checked.size?'disabled':''}>선택한 ${state.checked.size}개 삭제</button></div>
     <div class="card"><div class="archive" style="max-height:550px">${state.entries.slice(0,state.manageLimit).map(e=>`<label class="archive-row"><input type="checkbox" data-field="record-check" data-id="${esc(e.id)}" ${state.checked.has(e.id)?'checked':''}><span style="flex:1"><b>${typeOf(e.kind).icon} ${typeOf(e.kind).label} · ${text(e.person||'세계관',60)}</b><small>${text(e.rangeLabel,100)} · ${fmtDate(e.createdAt)}${usageSummary(e)}</small></span></label>`).join('')||'<p class="subtle">보관 기록이 없어.</p>'}${state.entries.length>state.manageLimit?`<button class="button slim" data-act="manage-more">더 보기 (${state.entries.length-state.manageLimit}개 남음)</button>`:''}</div></div>
-    <div class="card"><b class="error">이 채팅방 전체 기록 삭제</b><p class="info">이 방에서 열람실이 생성한 가상 기록만 삭제해. 실제 채팅 기록과 프롬프트 설정은 그대로 유지돼.</p><button class="button danger" data-act="delete-all" ${state.entries.length?'':'disabled'}>이 방 기록 전부 지우기</button></div></div>`;
+    <div class="card"><b class="error">이 채팅방 전체 기록 삭제</b><p class="info">이 방에서 열람실이 생성한 가상 기록만 삭제해. 실제 채팅 기록과 프롬프트 설정은 그대로 유지돼.</p><button class="button danger" data-act="delete-all" ${state.entries.length && !state.busy?'':'disabled'}>이 방 기록 전부 지우기</button></div>
+    <div class="card stack" style="border-color:#a64659"><b class="error">모든 채팅방의 생성 기록 초기화</b><p class="info">이 방뿐 아니라 다른 모든 RP방의 월드뷰어 생성 기록을 한 번에 영구 삭제해. 실제 RP 대화, 채팅방별 프롬프트·설정, Gemini API 키는 삭제하지 않아. 확인할 때 전체 기록 수를 표시해.</p><button class="button danger" data-act="delete-global" ${state.busy?'disabled':''}>모든 방의 생성 기록 전부 지우기</button></div></div>`;
   }
   function render() {
     badge.className=[state.busy?'busy':'',state.open?'panel-open':''].filter(Boolean).join(' ');
@@ -1327,6 +1353,18 @@
       if (act==='single-delete') {const id=btn.dataset.id;if(!confirm('이 생성 기록 1개를 삭제할까?'))return;await deleteRecords([id]);state.entries=state.entries.filter(r=>r.id!==id);if(state.selectedRecord===id)state.selectedRecord='';render();return;}
       if (act==='delete-selected') {const ids=[...state.checked];if(!ids.length)return;if(!confirm(`선택한 기록 ${ids.length}개를 영구 삭제할까?`))return;await deleteRecords(ids);state.entries=state.entries.filter(r=>!state.checked.has(r.id));state.checked.clear();render();return;}
       if (act==='delete-all') {const ids=state.entries.map(x=>x.id);if(!ids.length)return;if(!confirm(`이 채팅방 가상 기록 ${ids.length}개를 전부 삭제할까? 이 작업은 되돌릴 수 없어.`))return;await deleteRecords(ids);state.entries=[];state.checked.clear();state.selectedRecord='';render();return;}
+      if (act==='delete-global') {
+        if (state.busy) return flash('생성이 끝난 후 기록을 삭제할 수 있어.');
+        const count=await countAllRecords();
+        if(!count){flash('모든 채팅방에 저장된 생성 기록이 없어.');return;}
+        const keyword=prompt(`모든 RP 채팅방의 가상 생성 기록 ${count.toLocaleString('ko-KR')}개를 영구 삭제합니다.\n실제 채팅과 프롬프트 설정은 유지됩니다.\n계속하려면 아래 입력창에 전체삭제를 정확히 입력하세요.`, '');
+        if(keyword!=='전체삭제') {if(keyword!==null)flash('문구가 일치하지 않아 삭제하지 않았어.');return;}
+        if(!confirm(`마지막 확인: 모든 채팅방의 생성 기록 ${count.toLocaleString('ko-KR')}개를 영구 삭제할까? 복구할 수 없어.`)) return;
+        await deleteAllGeneratedRecords();
+        state.entries=[];state.checked.clear();state.selectedRecord='';state.view='home';
+        render();flash(`모든 채팅방 생성 기록 ${count.toLocaleString('ko-KR')}개 삭제 완료. 채팅과 설정은 유지돼.`,8500);
+        return;
+      }
     } catch(err) {showError(err);}
   });
   let saveTimer=0;
