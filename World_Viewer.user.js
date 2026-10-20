@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.17
-// @description  RP 대화를 바탕으로 가상의 핸드폰·컴퓨터·커뮤니티·뉴스·위키·실시간톡·X·일기를 생성하고 열람하는 개인용 뷰어.
+// @version      0.2.23
+// @description  RP 대화 기반 가상 기록 열람실 · 콘텐츠별 테마 · 단체 채팅 · 방 공통 프롬프트 프리셋
 // @match        https://crack.wrtn.ai/*
 // @noframes
 // @run-at       document-idle
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.17';
+  const VERSION = '0.2.23';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -31,8 +31,63 @@
     { key: 'news', label: '뉴스', icon: '📰', person: false },
     { key: 'wiki', label: '위키', icon: '📚', person: false },
     { key: 'live', label: '실시간톡', icon: '📺', person: false },
+    { key: 'groupchat', label: '단톡', icon: '💬', person: true },
     { key: 'x', label: '𝕏+', icon: '𝕏', person: false },
   ];
+  const THEMES = {
+    phone:[
+      {id:'modern', label:'현대 · 스마트폰'},
+      {id:'retro', label:'레트로 · 폴더폰'},
+      {id:'classic', label:'사극/고전 · 서신/소지품함'},
+      {id:'fantasy', label:'로판/판타지 · 마법 통신구'},
+    ],
+    pc:[
+      {id:'modern', label:'현대 · PC'},
+      {id:'classic', label:'사극/고전 · 개인서고/문서함'},
+      {id:'fantasy', label:'로판/판타지 · 마법기록실'},
+    ],
+    diary:[
+      {id:'classic-modern', label:'현대 1 · 기존 일기장'},
+      {id:'modern-note', label:'현대 2 · 모던 노트'},
+      {id:'classic-paper', label:'사극/고전 · 고전 종이'},
+      {id:'fantasy-parchment', label:'로판/판타지 · 양피지'},
+    ],
+    board:[
+      {id:'modern', label:'현대 · 디시풍 게시판'},
+      {id:'classic', label:'사극/고전 · 저잣거리 소문판'},
+      {id:'fantasy', label:'로판/판타지 · 왕도/길드 게시판'},
+      {id:'foreign4', label:'외국 1 · 4chan 느낌'},
+      {id:'foreign2', label:'외국 2 · 2ch 느낌'},
+    ],
+    news:[
+      {id:'modern', label:'현대 · 기본'},
+      {id:'classic', label:'사극/고전 · 관보/소식지'},
+      {id:'fantasy', label:'로판/판타지 · 황실 신문'},
+    ],
+    wiki:[
+      {id:'modern', label:'현대 · 기본'},
+      {id:'classic', label:'사극/고전 · 백과사전'},
+      {id:'fantasy', label:'로판/판타지 · 판타지 백과'},
+    ],
+    live:[
+      {id:'modern', label:'기본 · 실시간톡'}
+    ],
+    groupchat:[
+      {id:'kakao', label:'현대 1 · 카카오톡풍'},
+      {id:'neutral', label:'현대 2 · 기본 단체 채팅'},
+      {id:'fantasy', label:'로판/판타지 · 수정구 단톡'},
+      {id:'classic', label:'사극/고전 · 쪽지 단톡'},
+    ],
+    x:[
+      {id:'modern', label:'현대 · 기본'},
+      {id:'classic', label:'사극/고전 · 풍문 벽보'},
+      {id:'fantasy', label:'로판/판타지 · 마법 소식판'},
+    ],
+  };
+  const defaultThemes = () => Object.fromEntries(TYPES.map(t=>[t.key,(THEMES[t.key]&&THEMES[t.key][0]?THEMES[t.key][0].id:'modern')]));
+  const themeOptions = kind => THEMES[kind] || [{id:'modern',label:'기본'}];
+  const validTheme = (kind, value) => themeOptions(kind).some(x=>x.id===value) ? value : (themeOptions(kind)[0]?.id || 'modern');
+  const themeLabel = (kind, value) => themeOptions(kind).find(x=>x.id===value)?.label || themeOptions(kind)[0]?.label || '기본';
   const typeOf = key => TYPES.find(x => x.key === key) || TYPES[0];
   const esc = x => String(x ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
   const text = (x, limit = 20000) => esc(String(x ?? '').slice(0, limit));
@@ -44,6 +99,7 @@
   const configKey = room => 'prwv:room:v1:' + room;
   const KEY_API = 'prwv:gemini-key:v1';
   const KEY_BUTTON = 'prwv:floating-position:v2';
+  const KEY_PRESETS = 'prwv:perkind-presets:global:v1';
   const DEFAULT_KRW_PER_USD = 1330; // 수동 환산용 초기값. 시세가 아니며 설정에서 수정 가능.
   // 유료 Standard 기준: USD / 100만 토큰. 사용자 모델 선택에 맞춰 자동 계산. 가격은 2026-10-20 확인.
   const PRICES = {
@@ -69,7 +125,7 @@
     rich: { label:'4단계 · 풍부', estimate:14000, max:32768 },
     large: { label:'5단계 · 대량', estimate:22000, max:49152 },
   };
-  const OUTPUT_TARGETS = {"phone":{"basic":{"messages":3,"calls":4,"searches":6,"notes":2,"social":3,"photos":4},"light":{"messages":5,"calls":6,"searches":10,"notes":4,"social":5,"photos":6},"standard":{"messages":7,"calls":9,"searches":15,"notes":6,"social":7,"photos":9},"rich":{"messages":9,"calls":12,"searches":20,"notes":9,"social":10,"photos":12},"large":{"messages":12,"calls":17,"searches":28,"notes":12,"social":14,"photos":17}},"pc":{"basic":{"folders":2,"emails":3,"browser":4,"notes":2},"light":{"folders":4,"emails":6,"browser":8,"notes":4},"standard":{"folders":5,"emails":9,"browser":12,"notes":6},"rich":{"folders":7,"emails":12,"browser":16,"notes":9},"large":{"folders":10,"emails":18,"browser":23,"notes":13}},"board":{"basic":{"sections":1,"posts":4},"light":{"sections":2,"posts":6},"standard":{"sections":2,"posts":8},"rich":{"sections":3,"posts":10},"large":{"sections":4,"posts":13}},"news":{"basic":3,"light":6,"standard":9,"rich":12,"large":18},"wiki":{"basic":2,"light":4,"standard":6,"rich":9,"large":13},"live":{"basic":{"chat":20,"highlights":2},"light":{"chat":45,"highlights":4},"standard":{"chat":75,"highlights":6},"rich":{"chat":110,"highlights":8},"large":{"chat":170,"highlights":12}},"x":{"basic":{"posts":8,"trends":3},"light":{"posts":18,"trends":5},"standard":{"posts":27,"trends":7},"rich":{"posts":38,"trends":9},"large":{"posts":55,"trends":12}}};
+  const OUTPUT_TARGETS = {"phone":{"basic":{"messages":3,"calls":4,"searches":6,"notes":2,"social":3,"photos":4},"light":{"messages":5,"calls":6,"searches":10,"notes":4,"social":5,"photos":6},"standard":{"messages":7,"calls":9,"searches":15,"notes":6,"social":7,"photos":9},"rich":{"messages":9,"calls":12,"searches":20,"notes":9,"social":10,"photos":12},"large":{"messages":12,"calls":17,"searches":28,"notes":12,"social":14,"photos":17}},"pc":{"basic":{"folders":2,"emails":3,"browser":4,"notes":2},"light":{"folders":4,"emails":6,"browser":8,"notes":4},"standard":{"folders":5,"emails":9,"browser":12,"notes":6},"rich":{"folders":7,"emails":12,"browser":16,"notes":9},"large":{"folders":10,"emails":18,"browser":23,"notes":13}},"board":{"basic":{"sections":1,"posts":4},"light":{"sections":2,"posts":6},"standard":{"sections":2,"posts":8},"rich":{"sections":3,"posts":10},"large":{"sections":4,"posts":13}},"news":{"basic":3,"light":6,"standard":9,"rich":12,"large":18},"wiki":{"basic":2,"light":4,"standard":6,"rich":9,"large":13},"live":{"basic":{"chat":20,"highlights":2},"light":{"chat":45,"highlights":4},"standard":{"chat":75,"highlights":6},"rich":{"chat":110,"highlights":8},"large":{"chat":170,"highlights":12}},"x":{"basic":{"posts":8,"trends":3},"light":{"posts":18,"trends":5},"standard":{"posts":27,"trends":7},"rich":{"posts":38,"trends":9},"large":{"posts":55,"trends":12}},"groupchat":{"basic":{"rooms":1,"messages":16},"light":{"rooms":2,"messages":20},"standard":{"rooms":3,"messages":25},"rich":{"rooms":4,"messages":30},"large":{"rooms":5,"messages":36}}};
   const DIARY_SIZES = {"basic":{"min":250,"length":"300~550"},"light":{"min":470,"length":"550~900"},"standard":{"min":750,"length":"900~1400"},"rich":{"min":1200,"length":"1400~2100"},"large":{"min":2000,"length":"2300~3300"}};
   const OUTPUT_QUANTITY = Object.fromEntries(Object.entries(OUTPUT_TARGETS).map(([kind,levels]) => [kind,Object.fromEntries(Object.entries(levels).map(([level,targets])=>[level,typeof targets==='number'?`${targets}개 이상`:Object.entries(targets).map(([name,count])=>`${name} ${count}개`).join(', ')]))]));
   OUTPUT_QUANTITY.diary = Object.fromEntries(Object.entries(DIARY_SIZES).map(([level,rule])=>[level,`일기 딱 1편, 같은 하루의 본문 ${rule.length}자.`]));
@@ -144,12 +200,13 @@
     for (const k of ['world', 'character', 'relationship']) common[k] = { enabled: false, value: '' };
     const perKind = {};
     for (const k of TYPES) perKind[k.key] = { enabled: false, value: '' };
-    return { model: 'gemini-2.5-flash', thinkingLevel:'auto', outputSize:'standard', common, perKind, characters: [], selectedPerson: '', rangeMode: 'recent', recentTurns: 30, rangeFrom: 1, rangeTo: 30, userName: '', krwPerUsd: DEFAULT_KRW_PER_USD, lastTab: 'phone' };
+    return { model: 'gemini-2.5-flash', thinkingLevel:'auto', outputSize:'standard', common, perKind, themes: defaultThemes(), groupchatBasePrompt: GROUPCHAT_BASE_PROMPT, characters: [], selectedPerson: '', rangeMode: 'recent', recentTurns: 30, rangeFrom: 1, rangeTo: 30, userName: '', krwPerUsd: DEFAULT_KRW_PER_USD, lastTab: 'phone' };
   }
   function normalizeSettings(x) {
     const d = defaultSettings(), s = x && typeof x === 'object' ? x : {};
     const blocks = key => Object.fromEntries(Object.entries(d[key]).map(([k, def]) => [k, { enabled: !!(s[key]?.[k]?.enabled ?? def.enabled), value: String(s[key]?.[k]?.value ?? def.value) }]));
-    return { ...d, ...s, common: blocks('common'), perKind: blocks('perKind'), characters: arr(s.characters).filter(x => typeof x === 'string').slice(0, 80), selectedPerson: String(s.selectedPerson || ''), model: String(s.model || d.model), thinkingLevel:validThinking(String(s.model||d.model),String(s.thinkingLevel||'auto')), outputSize:outputSize(s.outputSize), rangeMode: s.rangeMode === 'range' ? 'range' : 'recent', recentTurns: clamp(s.recentTurns ?? 30, 1, 2000), rangeFrom: Math.max(1, integer(s.rangeFrom, 1)), rangeTo: Math.max(1, integer(s.rangeTo, 30)), userName: String(s.userName||'').trim().slice(0,100), krwPerUsd: clamp(s.krwPerUsd??DEFAULT_KRW_PER_USD, 1, 100000) };
+    const themes = Object.fromEntries(TYPES.map(t=>[t.key, validTheme(t.key, s.themes?.[t.key] ?? d.themes[t.key])]));
+    return { ...d, ...s, common: blocks('common'), perKind: blocks('perKind'), themes, groupchatBasePrompt: typeof s.groupchatBasePrompt==='string' && s.groupchatBasePrompt!==LEGACY_GROUPCHAT_BASE_PROMPT ? s.groupchatBasePrompt.slice(0,300000) : d.groupchatBasePrompt, characters: arr(s.characters).filter(x => typeof x === 'string').slice(0, 80), selectedPerson: String(s.selectedPerson || ''), model: String(s.model || d.model), thinkingLevel:validThinking(String(s.model||d.model),String(s.thinkingLevel||'auto')), outputSize:outputSize(s.outputSize), rangeMode: s.rangeMode === 'range' ? 'range' : 'recent', recentTurns: clamp(s.recentTurns ?? 30, 1, 2000), rangeFrom: Math.max(1, integer(s.rangeFrom, 1)), rangeTo: Math.max(1, integer(s.rangeTo, 30)), userName: String(s.userName||'').trim().slice(0,100), krwPerUsd: clamp(s.krwPerUsd??DEFAULT_KRW_PER_USD, 1, 100000) };
   }
   const getGM = async (k, d) => typeof GM_getValue === 'function' ? GM_getValue(k, d) : (localStorage.getItem(k) ?? d);
   const setGM = async (k, v) => typeof GM_setValue === 'function' ? GM_setValue(k, v) : localStorage.setItem(k, v);
@@ -409,17 +466,21 @@
     news: `{"site":"가상 뉴스 사이트 이름","articles":[{"category":"카테고리","title":"기사 제목","author":"기자","date":"날짜","lede":"리드문","body":"기사 전체","comments":[{"author":"닉네임","text":"댓글"}]}]}`,
     wiki: `{"site":"가상 위키 이름","docs":[{"title":"문서명","summary":"소개","sections":[{"heading":"항목 제목","body":"설명"}],"discussion":[{"author":"편집자","text":"토론"}]}]}`,
     live: `{"show":"드라마/방송 제목","episode":"이번 화 제목","chat":[{"user":"시청자 닉네임","time":"타임스탬프","text":"채팅","donation":0}],"highlights":[{"title":"장면","text":"클립 설명"}]}`,
+    groupchat: `{"owner":"선택한 캐릭터 이름","site":"채팅 서비스 이름","rooms":[{"title":"선택한 캐릭터가 참여한 단체 채팅방 제목","participants":["선택한 캐릭터","다른 참여자1","다른 참여자2"],"messages":[{"sender":"참여자 이름(선택한 캐릭터도 반드시 여러 번 발화)","time":"시간","text":"메시지 내용"}]}]}`,
     x: `{"site":"가상의 SNS 이름","trends":[{"tag":"화제 키워드","count":"1.2만"}],"posts":[{"author":"표시 이름","handle":"계정아이디","time":"게시 시간","text":"짧은 글 본문","likes":120,"reposts":9,"replies":[{"author":"다른 계정명","handle":"다른아이디","text":"답글 내용"}]}]}`,
   };
+  const LEGACY_GROUPCHAT_BASE_PROMPT = '세계관의 인물들이 나누는 사적인 단체 대화방과 대화 기록을 만든다. 각 방에는 3명 이상이 참여하고, 인물마다 성격·말투·관계가 드러나는 대화를 시간순으로 구성한다. RP를 보는 외부 시청자 채팅이 아닌 세계관 내부 인물들의 대화다.';
+  const GROUPCHAT_BASE_PROMPT = '선택한 캐릭터가 실제로 참여하는 사적인 단체 채팅방을 만든다. 모든 방의 참여자에 선택한 캐릭터를 포함하고, 그 캐릭터가 직접 보낸 메시지도 여러 개 작성한다. 다른 참여자는 RP에서 해당 캐릭터와 관계있는 인물을 우선한다. 방마다 3명 이상이 대화하며, 인물별 성격·말투·관계와 대화의 흐름을 살린다. 외부 시청자 채팅이 아닌 캐릭터 본인의 단톡 기록이다.';
   const DESCRIPTIONS = {
-    phone: '선택한 캐릭터의 실제 개인 스마트폰을 엿보는 듯한 문자, 메모, 검색어, 통화, SNS, 사진을 다양한 톤으로 구성한다.',
-    pc: '선택한 캐릭터의 개인 컴퓨터에 남은 파일, 이메일, 브라우저 방문 기록, 문서를 현실적인 폴더/파일 구조로 구성한다.',
-    diary: '선택한 캐릭터가 그날 하루를 마치고 자기 자신을 위해 직접 쓰는 1인칭 비공개 일기이다. 생성 요청 한 번에 하루치 일기 한 편만 쓴다. 분량 선택은 일기의 날짜 수가 아니라 같은 하루의 본문 길이와 내면 묘사의 깊이에만 적용한다. 캐릭터 본래의 성격·말투·가치관에 맞춰 꾸밈없고 솔직한 마음을 드러낸다. 그날 있었던 사건, 후회, 욕망, 질투, 사랑, 미움, 부끄러움, 숨겨둔 생각처럼 남에게 말하지 못할 속마음도 자연스럽게 기록한다. 독자에게 설명하는 해설문이 아니라 캐릭터 본인의 진짜 일기처럼 쓴다.',
-    board: '세계관의 일반 주민들이 이용하는 국내식 익명 갤러리 커뮤니티다. 게시자는 그 세계의 일반 사람들 또는 익명 이용자다. 다양한 일반 이용자의 관점에서 서로 다른 화제에 대해 글을 쓰고 댓글로 의견을 나눈다. 갤러리 여러 개, 제목·조회·추천·반응·댓글의 현실감을 살린다.',
-    news: '세계관 속 신문이나 뉴스 포털의 기사와 댓글을 여러 개 만든다. 기사체와 댓글 여론의 차이를 살린다.',
-    wiki: '세계관 사건과 인물에 관한 집단 편집 위키 문서를 여러 개 만든다. 항목과 토론을 구체적으로 쓴다.',
-    live: 'RP의 장면들을 드라마로 보는 시청자들의 실시간 채팅을 만든다. 채팅이 풍성하고 다양한 시청자 반응이 드러난다.',
-    x: '세계관 속 사람들이 사용하는 짧은 글 중심의 가상 SNS 타임라인을 만든다. 게시자는 세계관의 일반 시민, 목격자, 팬, 언론 계정, 익명 이용자 등이며, 세계관 사건을 두고 서로 다른 입장과 밈, 인용, 해시태그, 논쟁을 표현한다. 이 플랫폼의 글을 특정 캐릭터의 일기로 만들지 않는다.',
+    phone: '선택한 캐릭터의 개인 통신·기록 장치를 엿보는 듯한 문자, 통화, 메모, 검색, 소셜 활동, 사진 등의 기록을 다양하게 구성한다. 해당 기능이 없는 세계관에서는 서신·전언·교신·그림 등 대응 수단으로 표현한다.',
+    pc: '선택한 캐릭터의 개인 정보·문서 보관 공간을 엿보는 듯한 파일, 서신, 정보 탐색 기록, 개인 문서를 현실감 있게 구성한다. 기록 매체와 정리 방식은 세계관에 맞춘다.',
+    diary: '선택한 캐릭터가 직접 쓰는 하루치 비공개 일기 한 편을 작성한다. 성격·말투·시대적 배경을 반영하고, 사건과 감정, 후회·욕망·질투 등 숨겨진 속마음을 솔직한 1인칭으로 깊이 있게 기록한다. 분량은 일기 수가 아닌 본문 길이에 적용한다.',
+    board: '세계관의 일반 사람들이 소식·소문·의견을 나누는 공간이다. 다양한 주제의 게시판과 글, 댓글을 만들고, 참여자의 신분·성격·입장에 따른 말투와 반응을 살린다.',
+    news: '세계관에서 발행되거나 전파될 법한 뉴스와 소식 기록을 여러 개 만든다. 다양한 사건을 다루며 매체의 성향, 보도 문체, 독자 반응의 차이를 살린다.',
+    wiki: '세계관의 인물·사건·지역·조직·역사 등을 정리한 지식 자료를 만든다. 세부 항목과 기록자들의 해석·논쟁을 구체적으로 작성하고, 사실과 소문을 구분한다.',
+    live: 'RP 장면을 드라마로 시청하는 외부 관객들의 실시간 채팅을 만든다. 등장인물의 행동·관계·갈등에 대한 놀람·웃음·추측·논쟁 등 다양한 반응을 생생하게 표현한다.',
+    groupchat: GROUPCHAT_BASE_PROMPT,
+    x: '세계관 사람들이 짧은 소식·의견·소문을 공유하는 공간이다. 다양한 참여자의 입장과 유행·풍자·논쟁, 소식의 확산을 표현한다. 특정 캐릭터의 개인 일기로 만들지 않는다.',
   };
   function instructionFor(type, person, settings, partInstruction = '') {
     const common = [['world','세계관'],['character','캐릭터 정보'],['relationship','유저와의 관계']]
@@ -427,8 +488,9 @@
       .map(([k,label])=>`[추가 ${label}]\n${settings.common[k].value.trim()}`);
     const spec = settings.perKind[type];
     const extra = spec.enabled && spec.value.trim() ? `[${typeOf(type).label} 전용 추가 지시]\n${spec.value.trim()}` : '';
+    const description = type==='groupchat' ? String(settings.groupchatBasePrompt??GROUPCHAT_BASE_PROMPT).trim() || GROUPCHAT_BASE_PROMPT : DESCRIPTIONS[type];
     return [
-      '너는 RP 세계에 실제로 있을 법한 가상 디지털 흔적을 창작하는 엔진이다. 이것은 사용자가 혼자 보는 비공개 감상용 창작물이다.',
+      '너는 RP 세계에 존재할 법한 개인·사회적 기록을 창작한다. 기록의 매체·내용·표현은 세계관의 시대·문화·기술·마법 수준에 맞춘다.',
       '반드시 아래 JSON 구조의 객체 하나만 반환한다. Markdown 설명이나 코드펜스는 쓰지 않는다.',
       '제공된 RP 대화에서 인물·사건·말투·시대 배경을 파악한다. 대화에 없는 상세 사항은 세계관에 맞게 자유롭게 창작해도 된다.',
       '모든 출력 텍스트는 한국어로만 쓴다. 영어·일본어 등 외국어 문장·대사는 생성하지 않는다. JSON 필드명과 URL·고유명사 등 기술적으로 필요한 표기만 예외로 한다.',
@@ -440,7 +502,7 @@
       partInstruction
         ? `[분할 생성 · 이번 호출에서 만들 분량] ${partInstruction} 이번 요청의 지시된 개수만 실제 JSON에 담는다. 다른 분량이나 전체 목표를 한 번에 만들려고 시도하지 않는다.`
         : `[생성 분량: ${OUTPUT_SIZES[outputSize(settings.outputSize)].label}] ${OUTPUT_QUANTITY[type][outputSize(settings.outputSize)]} JSON 배열 요소 수를 실제로 이 지시에 맞춘다. 겉으로만 개수를 약속하는 설명은 쓰지 않는다.`,
-      `[이번 콘텐츠] ${typeOf(type).label}\n${DESCRIPTIONS[type]}`,
+      `[이번 콘텐츠] ${typeOf(type).label}\n${description}`,
       typeOf(type).person ? `[열람할 캐릭터] ${person}\n이 기록의 소유자는 이 캐릭터로 한다.` : '',
       ...common, extra,
       `[출력 데이터 구조] 다음 속성 이름과 자료형을 지킨다. 예시 데이터/이름/제목을 그대로 복사하지 말고 RP에 맞게 내용을 새로 작성한다.\n${FORMATS[type]}`,
@@ -451,11 +513,12 @@
     phone:{messages:2,calls:4,searches:5,notes:2,social:3,photos:4},
     pc:{folders:2,emails:3,browser:4,notes:2},
     board:{posts:3}, news:{articles:3}, wiki:{docs:2},
-    live:{chat:15,highlights:3}, x:{posts:6,trends:3},
+    live:{chat:15,highlights:3}, x:{posts:6,trends:3}, groupchat:{rooms:1},
   };
-  const primaryArray = {pc:'folders',diary:'entries',board:'sections',news:'articles',wiki:'docs',live:'chat',x:'posts',phone:'messages'};
+  const primaryArray = {pc:'folders',diary:'entries',board:'sections',news:'articles',wiki:'docs',live:'chat',x:'posts',phone:'messages',groupchat:'rooms'};
   function requestEstimateCount(kind,size) {
     if(kind==='diary')return 1;
+    if(kind==='groupchat')return OUTPUT_TARGETS.groupchat[outputSize(size)].rooms;
     const t=OUTPUT_TARGETS[kind]?.[size],u=BATCH_UNITS[kind];
     if(!t||!u)return 1;
     if(kind==='board')return t.sections*Math.ceil(t.posts/u.posts);
@@ -466,6 +529,7 @@
   }
   function sizeDescription(kind,size) {
     if(kind==='diary')return '하루치 일기 한 편 · 본문 '+DIARY_SIZES[size].length+'자 · 분량 부족 시 자동 재요청 없음';
+    if(kind==='groupchat')return `단톡방 ${OUTPUT_TARGETS.groupchat[size].rooms}개 · 방마다 메시지 ${OUTPUT_TARGETS.groupchat[size].messages}개 목표`;
     return `분량 ${OUTPUT_SIZES[size].label} · 목표 ${OUTPUT_QUANTITY[kind][size]} · 예상 ${requestEstimateCount(kind,size)}회 내외 분할 호출`;
   }
   // 실제 생성 루틴(OUTPUT_TARGETS, DIARY_SIZES)이 참조하는 수치 그대로 미리보기 표시.
@@ -474,12 +538,14 @@
     phone:{messages:'문자 대화',calls:'통화',searches:'검색',notes:'메모',social:'소셜 글',photos:'사진'},
     pc:{folders:'폴더',emails:'이메일',browser:'방문 기록',notes:'메모'},
     live:{chat:'채팅',highlights:'명장면'},
+    groupchat:{rooms:'단톡방',messages:'방당 메시지'},
     x:{posts:'게시글',trends:'트렌드'},
   };
   function sizePreviewText(kind,level) {
     if (kind==='diary')return `일기 1편 · 본문 ${DIARY_SIZES[level].length}자`;
     const spec=OUTPUT_TARGETS[kind]?.[level];
     if(kind==='board')return `갤러리 ${spec.sections}개 · 게시글 총 ${spec.sections*spec.posts}개 (갤러리당 ${spec.posts}개)`;
+    if(kind==='groupchat')return `단톡방 ${spec.rooms}개 · 방당 메시지 ${spec.messages}개`;
     if(typeof spec==='number')return `${kind==='news'?'기사':kind==='wiki'?'문서':'항목'} ${spec}개`;
     const labels=SIZE_PREVIEW_NAMES[kind]||{};
     return Object.entries(spec||{}).map(([key,num])=>`${labels[key]||key} ${num}개`).join(' · ');
@@ -507,6 +573,7 @@
     const result=kind==='phone'?{owner:person,wallpaper:'',messages:[],calls:[],searches:[],notes:[],social:[],photos:[]}:
       kind==='board'?{site:'',sections:[]}:kind==='pc'?{owner:person,folders:[],emails:[],browser:[],notes:[]}:
       kind==='diary'?{owner:person,entries:[]}:kind==='live'?{show:'',episode:'',chat:[],highlights:[]}:
+      kind==='groupchat'?{owner:person,site:'',rooms:[]}: 
       kind==='wiki'?{site:'',docs:[]}:kind==='news'?{site:'',articles:[]}:{site:'',trends:[],posts:[]};
     const single=async(part,cap=8192)=>{
       onProgress(`Gemini 생성 중 · ${calls.value+1}번째 요청 · 채팅 가능`);
@@ -585,7 +652,29 @@
       if(chars<diaryRule.min)warnings.push(`일기 본문 ${chars}자 / 최소 목표 ${diaryRule.min}자 (자동 재요청 없음)`);
       return {payload:result,usage,calls:calls.value,warnings, billUsd:knownBill?billUsd:null};
     }
-    if(kind==='board'){
+    if(kind==='groupchat'){
+      const seen=new Set();
+      for(let i=0;i<targets.rooms;i++){
+        const out=await single(`이번 호출에는 ${person}이(가) 참여한 단톡방 1개만 생성한다. participants에 "${person}"을 정확히 포함하고, messages에 sender가 "${person}"인 메시지를 여러 개 넣는다. 최소 3명의 참가자는 ${person}과 관계가 있어야 하며 RP 등장인물을 우선한다. 다른 방과 제목·화제를 달리한다. messages는 시간순으로 ${targets.messages}개를 목표로 작성한다. 유저 캐릭터 "${s.userName}"의 직접 대사는 생성하지 않는다.`,8192);
+        absorbBase(out);
+        const rooms=arr(out.rooms);
+        const room=rooms.find(r=>r&&typeof r==='object'&&arr(r.messages).length)||rooms[0];
+        if(!room){warnings.push(`단톡방 ${i+1}: 데이터 없음`);continue;}
+        const key=String(room.title||'').trim()||'단톡 '+(i+1);
+        if(seen.has(key)){warnings.push(`단톡방 ${i+1}: 중복 제목`);continue;}
+        const sameName=(a,b)=>String(a||'').trim().replace(/\s+/g,'').toLocaleLowerCase('ko-KR')===String(b||'').trim().replace(/\s+/g,'').toLocaleLowerCase('ko-KR');
+        const messages=arr(room.messages).filter(m=>m&&typeof m==='object'&&String(m.text||'').trim()&&String(m.sender||'').trim()&&!sameName(m.sender,s.userName)).slice(0,targets.messages);
+        // 선택 캐릭터가 직접 참여하지 않은 무관한 채팅방은 저장하지 않는다.
+        if(!messages.some(m=>sameName(m.sender,person))){warnings.push(`단톡방 ${i+1}: 선택 캐릭터의 발화가 없어 제외`);continue;}
+        const names=[...arr(room.participants),...messages.map(m=>m.sender)].map(x=>String(x||'').trim()).filter(x=>x&&!sameName(x,s.userName));
+        const participants=names.filter((name,index)=>names.findIndex(other=>sameName(other,name))===index);
+        if(!participants.some(name=>sameName(name,person)))participants.unshift(person);
+        if(participants.length<3){warnings.push(`단톡방 ${i+1}: 참여자 3명 미만이라 제외`);continue;}
+        seen.add(key);
+        result.rooms.push({title:key,participants,messages});
+        if(messages.length<targets.messages)warnings.push(`단톡방 ${i+1}: 메시지 ${messages.length}/${targets.messages}개`);
+      }
+    }else if(kind==='board'){
       const themes=['세계관 사건·소문','주민들의 일상·생활','지역·도시 소식','취미·문화·유행','직업·사회 현장','음식·상점 이야기'];
       for(let i=0;i<targets.sections;i++){
         const group={name:'',posts:[]};result.sections.push(group);
@@ -625,6 +714,7 @@
       if(!count)throw e;
       warnings.push(`중단 · ${String(e.message||e)}. 이전에 정상 생성한 ${count}개 항목만 저장했어.`);
     }
+    if(kind==='groupchat' && !result.rooms.length)throw new Error('선택 캐릭터가 실제로 참여한 단톡방이 생성되지 않았어. 저장하지 않았어.');
     return {payload:result,usage,calls:calls.value,warnings,billUsd:knownBill?billUsd:null};
   }
 
@@ -1106,9 +1196,719 @@
 }
 
 
+.pane-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;min-width:0}
+.pane-title-row h3{margin:0}
+.theme-picker{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:#121b2b;color:#dfe8f8;min-width:0}
+.theme-picker span{font-size:12px;font-weight:700;white-space:nowrap}
+.theme-picker select{min-width:min(290px,52vw);max-width:100%;background:#19253a;color:#eef4ff;border:1px solid #596781;border-radius:8px;padding:7px 10px;font:inherit}
+.theme-pill{background:#2a2441;border-color:#7556b6;color:#efe5ff}
+.alt-device{border:1px solid #3d4d68;border-radius:24px;padding:16px;background:linear-gradient(180deg,#0c1320,#141b2b);box-shadow:0 18px 40px rgba(0,0,0,.32)}
+.alt-device.classic{background:linear-gradient(180deg,#271b12,#3b2b1c);border-color:#73573a;color:#f5ead8}
+.alt-device.retro{background:linear-gradient(180deg,#29404a,#1e2b30);border-color:#708b96;color:#eef9ff}
+.alt-device.fantasy{background:linear-gradient(180deg,#1b1538,#2d1f52 35%,#120f25);border-color:#8d6ff0;color:#efe8ff;box-shadow:0 0 0 1px rgba(168,122,255,.25),0 18px 40px rgba(0,0,0,.35)}
+.alt-device-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:0 2px 12px}
+.alt-device-head b{display:block;font-size:20px;color:inherit}
+.alt-device-head small{display:block;color:inherit;opacity:.78;line-height:1.45}
+.alt-device-badge{padding:6px 10px;border-radius:999px;border:1px solid currentColor;opacity:.8;font-size:11px;white-space:nowrap}
+.alt-device-body{background:rgba(10,14,25,.38);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:14px;backdrop-filter:blur(6px)}
+.alt-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.alt-grid.photos{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+.alt-card,.alt-photo-card,.board-alt-section,.board-alt-home button,.board-alt-hot button,.news-alt-card,.wiki-alt-card,.wiki-alt-link,.x-alt-trends button{cursor:pointer;text-align:left;width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(255,255,255,.04);color:inherit;padding:12px}
+.alt-card b,.alt-photo-card small,.news-alt-card b,.wiki-alt-card b{display:block}
+.alt-card small,.news-alt-card small,.wiki-alt-card small,.alt-photo-card small{opacity:.75;line-height:1.45}
+.alt-list,.alt-feed,.alt-thread,.board-alt-list,.news-alt-grid,.wiki-alt-home,.x-alt-layout main{display:grid;gap:10px}
+.alt-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;padding:12px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(255,255,255,.04);color:inherit}
+.alt-row.static{cursor:default}
+.alt-row b,.alt-row small{display:block;grid-column:1}
+.alt-row span{grid-column:2;grid-row:1 / span 2;white-space:nowrap;opacity:.72}
+.alt-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.alt-empty{opacity:.7;padding:14px 2px}
+.alt-thread{display:grid;gap:12px}
+.alt-bubble{padding:12px 14px;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06)}
+.alt-bubble.me{margin-left:38px}
+.alt-bubble.them{margin-right:38px}
+.alt-bubble b{display:block;margin-bottom:6px}
+.alt-bubble p{margin:0 0 6px;line-height:1.7;white-space:pre-wrap}
+.alt-bubble small{opacity:.72}
+.alt-post{padding:13px 14px;border:1px solid rgba(255,255,255,.10);border-radius:15px;background:rgba(255,255,255,.04)}
+.alt-post b{display:block}
+.alt-post small,.alt-meta,.alt-comment{opacity:.82}
+.alt-post p,.board-alt-post p,.news-alt-article p,.x-alt-post p,.diary-alt-body{line-height:1.75;white-space:pre-wrap}
+.alt-comment{margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.12)}
+.alt-photo-card{display:grid;gap:9px;place-items:center;text-align:center;min-height:120px}
+.alt-photo-card span,.alt-emoji{font-size:40px}
+.alt-doc{padding:14px;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(255,255,255,.03)}
+.alt-doc h3,.alt-doc h2{margin:0 0 10px}
+.retro-keypad,.device-footer{margin-top:12px;text-align:center;opacity:.75;font-size:12px;letter-spacing:.16em}
+.board-alt,.news-alt,.wiki-alt,.x-alt{border:1px solid #435067;border-radius:18px;padding:14px;background:#111827;color:#e9f1ff}
+.board-alt.classic,.news-alt.classic,.wiki-alt.classic,.x-alt.classic{background:#2a2018;color:#f4e8d5;border-color:#7d6549}
+.board-alt.fantasy,.news-alt.fantasy,.wiki-alt.fantasy,.x-alt.fantasy{background:#181330;color:#f0ebff;border-color:#8b73de}
+.board-alt.foreign4{background:#f1f5ff;color:#12203c;border-color:#a2b4ee}
+.board-alt.foreign2{background:#faf6f1;color:#392d22;border-color:#c1b0a1}
+.board-alt-head,.news-alt-head,.wiki-alt-head,.x-alt-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,.12);padding-bottom:10px;margin-bottom:14px}
+.board-alt-head b,.news-alt-head b,.wiki-alt-head b,.x-alt-head b{font-size:20px}
+.board-alt-home{display:grid;gap:16px}
+.board-alt-sections{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.board-alt-hot{display:grid;gap:10px}
+.board-alt-hot button{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center}
+.board-alt-list{display:grid;gap:9px}
+.board-alt-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(255,255,255,.04);color:inherit;text-align:left}
+.board-alt-row small{display:block;opacity:.76;margin-top:3px}
+.board-alt-post{padding:14px;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(255,255,255,.04)}
+.board-alt-meta{display:flex;gap:10px;flex-wrap:wrap;opacity:.76;margin-bottom:12px}
+.board-alt-comments{margin-top:18px;display:grid;gap:8px}
+.board-alt-comment{padding-top:8px;border-top:1px dashed rgba(255,255,255,.12)}
+.board-alt-crumb{margin-bottom:12px;opacity:.8;display:flex;gap:8px;flex-wrap:wrap}
+.news-alt-grid{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.news-alt-card p{margin:.55em 0 0;line-height:1.6}
+.news-alt-card span{display:block;margin-top:10px;opacity:.72}
+.news-alt-article{padding:8px 2px}
+.news-alt-meta{display:flex;gap:10px;flex-wrap:wrap;opacity:.76;margin-bottom:12px}
+.news-alt-lede{font-size:16px;font-weight:600;opacity:.92}
+.wiki-alt-layout{display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr);gap:14px}
+.wiki-alt-side{display:grid;gap:8px;align-content:start}
+.wiki-alt-link.active{outline:2px solid currentColor}
+.wiki-alt-doc{padding:8px 2px}
+.wiki-alt-dochead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.wiki-alt-dochead h1{margin:0}
+.wiki-alt-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.wiki-alt-tabs button{padding:7px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:inherit}
+.wiki-alt-tabs .selected{background:rgba(255,255,255,.12)}
+.wiki-alt-summary{opacity:.86;line-height:1.7}
+.wiki-alt-discussion{display:grid;gap:10px}
+.wiki-alt-discussion > div{padding:12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.x-alt-layout{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:14px}
+.x-alt-post{padding:14px;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(255,255,255,.04)}
+.x-alt-meta{display:flex;gap:8px;flex-wrap:wrap;opacity:.76;margin-bottom:8px}
+.x-alt-stats{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:10px;opacity:.85}
+.x-alt-stats button{padding:0;background:none;border:0;color:inherit;cursor:pointer}
+.x-alt-replies{display:grid;gap:9px;margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.12)}
+.x-alt-reply{padding:10px;border-radius:12px;background:rgba(255,255,255,.04)}
+.x-alt-search{padding:10px 12px;border:1px solid rgba(255,255,255,.10);border-radius:12px}
+.x-alt-search input{width:100%;margin-top:8px;background:transparent;border:0;color:inherit;font:inherit;outline:none}
+.x-alt-trends{display:grid;gap:8px;margin-top:12px}
+.diary-alt{border-radius:22px;padding:18px;border:1px solid #59657b;background:#1a2232;color:#eef4ff}
+.diary-alt.modern-note{background:linear-gradient(180deg,#161d29,#1f2937)}
+.diary-alt.classic-paper{background:linear-gradient(180deg,#322519,#4a3723);border-color:#87674c;color:#f7ead7}
+.diary-alt.fantasy-parchment{background:linear-gradient(180deg,#23193f,#35245a);border-color:#9a7cff;color:#f2ecff}
+.diary-alt-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.diary-alt-head b{font-size:20px}
+.diary-alt-head small{opacity:.8}
+.diary-alt-paper{padding:18px;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}
+.diary-alt-meta{display:flex;gap:8px;flex-wrap:wrap;opacity:.78;font-size:12px;margin-bottom:12px}
+.diary-alt-paper h2{margin:0 0 12px}
+.diary-alt-body{min-height:260px}
+@media (max-width:900px){
+  .theme-picker{width:100%;justify-content:space-between}
+  .theme-picker select{min-width:0;flex:1}
+  .wiki-alt-layout,.x-alt-layout{grid-template-columns:1fr}
+}
+
+
+/* v0.2.20: independent physical media designs, scoped under dedicated theme roots. */
+.pane-title-row{width:100%;min-width:0}
+.theme-picker{max-width:min(380px,100%)}
+.theme-picker select{max-width:290px}
+.preview .theme-pill{font-size:11px;white-space:normal}
+.stage .preview{scrollbar-width:thin}
+.stage .preview :is(.theme-longtext,.archive-text,.codex-paragraph,.gazette-article-body,.notice-body,.micro-post-text,.flip-detail-list,.letter-read-content){overflow-wrap:anywhere}
+
+/* Flip phone. A real two-piece hinge, LCD and usable numeric buttons. */
+.flip-display-wrap{display:flex;align-items:center;flex-direction:column;gap:13px;padding:14px 8px 24px;min-width:0}
+.flip-phone{width:min(376px,100%);min-width:0;margin:auto;display:flex;flex-direction:column;align-items:center;color:#20394a;font-family:Arial,'Malgun Gothic',sans-serif;filter:drop-shadow(0 18px 14px #0008)}
+.flip-phone button{cursor:pointer}
+.flip-top{height:350px;width:95%;background:linear-gradient(130deg,#90a6b4 0%,#eef6f9 22%,#9daeb9 61%,#556d7e 100%);border:4px solid #778b99;border-radius:42px 42px 11px 11px;padding:14px 15px 10px;box-shadow:inset 3px 3px 3px #fff8,inset -4px -4px 6px #465e7588;position:relative;display:flex;flex-direction:column;align-items:center;gap:9px}
+.flip-ear{width:66px;height:7px;border-radius:18px;background:linear-gradient(#30485d,#677f92);border:1px solid #455e70;flex:none}
+.flip-lcd{position:relative;width:100%;min-height:0;flex:1;border:7px solid #4f687a;background:#cde6e8;border-radius:13px;box-shadow:inset 0 0 14px #103f5066,0 2px 5px #fff6;display:flex;flex-direction:column;overflow:hidden}
+.flip-status{height:23px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:#3c7185;color:#fff;font-size:11px;font-weight:800}
+.flip-home,.flip-detail{min-height:0;flex:1;display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(155deg,#e6faf2,#a9cdd2)}
+.flip-home>b{font-size:17px;font-weight:850;margin:12px 12px 7px;padding-bottom:8px;border-bottom:2px solid #799eae;text-align:center;color:#294a5b}
+.flip-menu{min-height:0;overflow-y:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:2px 10px 9px;align-content:start}
+.flip-item{position:relative;border:1px solid #91b2bc;border-radius:6px;background:linear-gradient(#f8fcff,#e1f0f1);padding:9px 3px;min-height:68px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;color:#31556b;font-size:11px;font-weight:800;box-shadow:0 2px 0 #92b2bc;text-align:center}
+.flip-item .theme-glyph{font-size:18px}
+.flip-item .theme-menu-text{font-size:11px}
+.flip-item small{font-size:9px;opacity:.68}
+.flip-item i{position:absolute;top:3px;left:5px;font-size:9px;font-style:normal;color:#496c81}
+.flip-detail-head{display:flex;align-items:center;gap:5px;border-bottom:1px solid #8bafb4;padding:5px 7px;flex:none}
+.flip-detail-head button{border:0;background:#5b8a95;color:#fff;border-radius:5px;padding:2px 10px;font-size:13px}
+.flip-detail-head b{flex:1;text-align:center;font-size:12px}
+.flip-detail-list{min-height:0;overflow:auto;padding:8px;flex:1;font-size:12px}
+.flip-detail-list .theme-record-line,.flip-detail-list .theme-social-entry,.flip-detail-list .theme-document,.flip-detail-list .theme-message,.flip-detail-list .theme-picture{color:#263e49;background:rgba(255,255,255,.68);border:1px solid #8eacb4}
+.flip-softkeys{display:flex;align-items:center;justify-content:space-between;flex:none;height:25px;padding:0 7px;border-top:1px solid #a1b7c6;background:linear-gradient(#e0f1f1,#bfdadf);font-size:9px;color:#59778a}
+.flip-softkeys button{border:0;background:none;color:#2d5c75;font:inherit;font-weight:800;padding:2px}
+.flip-hinge{width:99%;height:19px;flex:none;background:linear-gradient(#4f697e,#d9e8ed 28%,#89a6b7 56%,#536c7d);border:2px solid #7d92a0;box-shadow:0 3px 4px #152d3d7a;border-radius:5px;z-index:2}
+.flip-bottom{height:270px;width:100%;border:4px solid #8496a4;border-radius:14px 14px 58px 58px;background:linear-gradient(122deg,#c3d2dd,#eff7fa 25%,#b9cbd7 65%,#708a9e);box-shadow:inset 4px 3px 7px #fff9,inset -6px -7px 9px #667b8da0;padding:12px 19px 25px}
+.flip-controls{display:flex;justify-content:center;align-items:center;gap:15px;margin:0 0 12px}
+.flip-controls button{border:2px solid #9fb5c4;background:linear-gradient(#e8f3f6,#7892a5);color:#324b61;font-weight:900;border-radius:22px;min-width:48px;height:34px;box-shadow:0 2px 2px #5f788f88}
+.flip-controls .flip-dpad{width:83px;height:45px;color:#fff;font-size:18px;background:radial-gradient(circle,#7698ad 25%,#4e7188 26%,#54778b 53%,#b3cbd6 55%);border-radius:25px}
+.flip-keys{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px 9px}
+.flip-key{border:1px solid #9baebb;border-radius:18px;background:linear-gradient(#fbfeff,#d2e1e8);box-shadow:0 2px 3px #5c718e7a;color:#324b60;height:34px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2px}
+.flip-key b{font-size:16px;line-height:18px}
+.flip-key small{font-size:7px;line-height:9px;letter-spacing:.05em}
+.device-caption{color:#b9cce1;text-align:center;font-size:12px;margin:0}
+
+/* Shared record layouts inside media only; never giant content cards. */
+.theme-record-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;width:100%;border:1px solid #d4c4a7;background:#fff9ec;color:#4c3427;padding:10px;text-align:left;margin-bottom:7px;border-radius:4px}
+.theme-line-heading{font-weight:850;grid-column:1}
+.theme-line-desc{opacity:.8;font-size:12px;grid-column:1;white-space:pre-wrap}
+.theme-record-line time{font-size:10px;white-space:nowrap;opacity:.72;grid-column:2;grid-row:1 / span 2}
+.theme-picture-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:9px}
+.theme-picture{background:rgba(255,255,255,.55);border:1px solid #d9be91;border-radius:4px;color:inherit;padding:10px;text-align:center;display:flex;flex-direction:column;gap:6px}
+.theme-picture>span{font-size:36px}
+.theme-picture>b{font-size:11px}
+.theme-picture>small{font-size:10px;opacity:.7}
+.theme-social-entry{padding:13px;margin-bottom:10px;background:#fff9eb;border:1px solid #dbbd8a;color:#3c2d22;border-radius:4px}
+.theme-social-entry header{display:flex;justify-content:space-between;gap:8px;font-size:12px}
+.theme-social-entry p{font-size:13px;line-height:1.7;white-space:pre-wrap}
+.theme-social-entry small,.theme-social-entry time{font-size:10px;opacity:.73}
+.theme-social-comment{border-top:1px solid #ddd0af;padding:7px 0;font-size:12px;line-height:1.6}
+.theme-message{max-width:94%;margin:8px 0;padding:12px;border:1px solid #d0bd97;border-radius:6px;background:#fffaf0}
+.theme-message.out{margin-left:auto;background:#f8e5cb}
+.theme-message small,.theme-message time{font-size:11px;opacity:.72}
+.theme-message p{font-size:13px;line-height:1.7;white-space:pre-wrap}
+.theme-document{padding:12px;line-height:1.7;white-space:pre-wrap}
+.theme-longtext{line-height:1.9;white-space:pre-wrap}
+.theme-photo-detail{text-align:center;padding:18px 5px}
+.theme-photo-detail>div{font-size:64px}
+.theme-photo-detail h3{font-size:20px;line-height:1.5}
+.theme-empty{text-align:center;opacity:.65;font-size:13px;padding:25px 5px}
+
+/* Classical hand-held correspondence chest: timber, paper, ribbon and wax seal. */
+.letter-world{max-width:740px;margin:0 auto;min-width:0;font-family:Georgia,'Malgun Gothic',serif}
+.letter-table{position:relative;min-height:650px;border:12px ridge #6f472c;border-radius:22px;padding:22px 35px 28px;background:repeating-linear-gradient(92deg,#5a3725 0,#68432d 35px,#754b30 42px,#60402b 82px);box-shadow:0 22px 45px #0008,inset 0 0 35px #1c0e0966;color:#453124}
+.letter-cord{position:absolute;top:-6px;bottom:-6px;left:20px;width:14px;border-radius:9px;background:linear-gradient(90deg,#9d7049,#dcb47a,#9b6741);box-shadow:2px 0 5px #1b09075c}
+.letter-hanger{text-align:center;color:#efd9b2;font-size:12px;letter-spacing:.12em;margin:0 auto 12px;text-shadow:0 1px 3px #29170c}
+.letter-box{min-height:545px;position:relative;border:7px solid #896143;border-radius:8px 16px 16px 8px;background:#503522;box-shadow:0 7px 12px #2a170e80,inset 0 0 3px #d9b281}
+.letter-spine{width:15px;background:linear-gradient(90deg,#b58859,#61442f,#a7784a);position:absolute;top:0;bottom:0;left:0;z-index:1}
+.letter-paper{margin-left:13px;position:relative;min-height:535px;background:linear-gradient(96deg,#d2b788,#f2dfb6 9%,#f4e4c5 85%,#dec397);border:1px solid #e2c794;box-shadow:inset 0 0 34px #aa7d4b55;padding:25px 33px 30px}
+.letter-cover-page{text-align:center;padding:0 0 28px}
+.letter-calligraphy{color:#8b563a;font-size:13px;letter-spacing:.65em;margin-bottom:12px}
+.letter-cover-page h2{font-size:30px;margin:0 0 4px;color:#523822;letter-spacing:.12em}
+.letter-cover-page>p{font-size:12px;color:#917352;margin:3px 0 25px}
+.letter-items{display:grid;gap:1px;border-top:1px solid #a18b63}
+.letter-folder{display:grid;grid-template-columns:35px minmax(0,1fr) auto;align-items:center;gap:10px;text-align:left;padding:13px 7px;background:transparent;border:0;border-bottom:1px solid #b79e75;color:#533c26;cursor:pointer}
+.letter-folder:hover{background:#dbc29870}
+.letter-folder .theme-glyph{display:grid;place-items:center;border:1px solid #ac8757;background:#e1c798;width:32px;height:32px;font-size:17px}
+.letter-folder .theme-menu-text{font-size:16px;font-weight:800}
+.letter-folder small{font-size:11px;opacity:.75}
+.letter-seal{position:absolute;right:13px;bottom:16px;border-radius:50%;width:54px;height:54px;display:grid;place-items:center;color:#ffd9a6;background:radial-gradient(#b44e38,#762b25);border:5px double #c27d58;box-shadow:0 4px 5px #301d1766;font-size:22px;transform:rotate(12deg);pointer-events:none;opacity:.78}
+.letter-read-top{display:flex;justify-content:space-between;gap:8px;color:#8b6a42;font-size:12px}
+.letter-read-top button{color:#67472c;border:0;background:none;cursor:pointer;font:inherit;font-weight:800}
+.letter-inkline{height:2px;margin:11px 0;background:linear-gradient(90deg,transparent,#9b764b,transparent)}
+.letter-read-page h2{font-size:23px;color:#503822;text-align:center;margin:12px 0 23px}
+.letter-read-content{font-size:14px;line-height:1.8;color:#4b392c;min-height:310px;max-height:490px;overflow-y:auto;padding-right:4px}
+.letter-page-end{text-align:center;padding:30px 0 3px;color:#906c49;font-size:12px}
+.letter-tools{display:flex;justify-content:space-around;gap:8px;color:#f0d2a3;font-size:11px;padding:15px 0 0}
+
+/* Arcane orb: object and record projection rather than generic cards. */
+.arcane-world{width:100%;max-width:1050px;margin:0 auto;min-height:660px;display:grid;grid-template-columns:minmax(250px,330px) minmax(0,1fr);gap:22px;color:#e9e1ff;align-items:stretch}
+.arcane-device{position:relative;min-width:0;padding:30px 22px;border-radius:110px 110px 30px 30px;border:3px double #a790e7;background:radial-gradient(circle at 50% 19%,#433a70 0,#211b45 42%,#0e1226 75%);box-shadow:inset 0 0 35px #a78cf455,0 0 0 5px #1b1a32,0 16px 32px #0009;text-align:center;overflow:hidden}
+.arcane-device:before{content:'✦';position:absolute;top:24px;left:30px;color:#b6a3fa;font-size:13px}
+.arcane-crown{font:16px Georgia,serif;letter-spacing:.3em;color:#c9a973}
+.arcane-orbit{width:208px;height:208px;max-width:100%;margin:27px auto 25px;border-radius:50%;border:2px dashed #9381c4;display:grid;place-items:center;box-shadow:0 0 32px #9c87e377;position:relative}
+.arcane-orbit:before{content:'✧';position:absolute;top:-17px;font-size:22px;color:#edd0ff}
+.arcane-orb{width:174px;height:174px;border-radius:50%;display:grid;place-items:center;color:#f6ecff;font:24px Georgia,'Malgun Gothic',serif;font-weight:700;letter-spacing:.1em;background:radial-gradient(circle at 33% 24%,#efffff,#9bbbd8 12%,#7f7fc8 27%,#514377 49%,#1b1c49 75%,#0d1234);border:2px solid #d8d3f6;box-shadow:inset -12px -16px 25px #12132f,inset 13px 12px 20px #ffffff50,0 0 18px #c2b3f3}
+.arcane-orb span{text-shadow:0 2px 6px #1d1b36}
+.arcane-runemenu{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 8px}
+.magic-rune{border:0;background:transparent;color:#e7dcff;display:grid;place-items:center;gap:4px;cursor:pointer;text-align:center;padding:4px 1px}
+.magic-rune .theme-glyph{display:grid;place-items:center;font-size:26px;border:1px solid #a495cf;border-radius:14px;height:48px;width:50px;background:radial-gradient(#66579366,#2e2b5988);box-shadow:0 0 13px #b99ffc44}
+.magic-rune .theme-menu-text{font-size:12px}
+.magic-rune small{font-size:10px;color:#b7a8d4}
+.arcane-base{margin-top:27px;font:12px Georgia,serif;letter-spacing:.25em;color:#d6b57e}
+.arcane-records{min-width:0;position:relative;border:3px double #ae91e2;border-radius:90px 90px 24px 24px;padding:50px 27px 26px;background:radial-gradient(ellipse at 40% 0,#55437e88 0,transparent 50%),linear-gradient(160deg,#1c193a,#13172e 55%,#16102c);box-shadow:inset 0 0 35px #9077dc33,0 12px 25px #0006}
+.arcane-records:before{content:'✧　◇　✧';position:absolute;top:16px;left:0;right:0;text-align:center;color:#c9acef}
+.arcane-intro{text-align:center;padding:80px 8px}
+.arcane-intro h2{font:24px Georgia,'Malgun Gothic',serif;color:#f1deff}
+.arcane-intro p{line-height:1.8;color:#d8cbef;font-size:14px}
+.arcane-pulse{color:#d3b98e;margin-top:55px;letter-spacing:.12em}
+.arcane-page-top{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.arcane-page-top button{border:1px solid #8e7ab6;border-radius:9px;background:#322a5a;color:#efe4ff;padding:8px 12px;cursor:pointer}
+.arcane-page-top small{color:#af9ccf}
+.arcane-page h2{font:22px Georgia,'Malgun Gothic',serif;color:#e8d6ff;border-bottom:1px solid #8e75bc;margin:25px 0 20px;padding-bottom:13px}
+.arcane-list{max-height:580px;overflow-y:auto;color:#e9e1ff}
+.arcane-list .theme-record-line,.arcane-list .theme-social-entry,.arcane-list .theme-document,.arcane-list .theme-message{background:#3d315899;color:#efe5ff;border-color:#7661a1}
+.arcane-list .theme-line-desc{color:#d7c8f0}
+.arcane-list .theme-picture{background:#38295599;color:#e7d8ff;border-color:#947ac2}
+.arcane-list .theme-message.out{background:#5a3d74}
+
+/* Classical computer is a wooden desk and drawers; fantasy computer an open arcane tome. */
+.study-world{max-width:1120px;margin:auto;padding:19px 23px 24px;color:#493622;background:repeating-linear-gradient(90deg,#65432b 0,#795333 36px,#795333 42px,#66412c 90px);border:12px ridge #8e633b;border-radius:18px;box-shadow:0 18px 34px #0008}
+.study-marquee{text-align:center;color:#f4dcad;font:26px Georgia,'Malgun Gothic',serif;margin:8px 0 23px}
+.study-marquee small{display:block;font-size:12px;color:#dec393;margin-top:5px}
+.study-cabinet{display:grid;grid-template-columns:minmax(185px,250px) minmax(0,1fr);gap:14px;align-items:stretch}
+.study-drawers{background:linear-gradient(#5d3b25,#744b2e);border:7px ridge #b48551;padding:11px 12px 18px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 0 18px #321909}
+.study-drawers-title{text-align:center;color:#efd4a5;font-weight:800;border-bottom:1px solid #b18a5e;padding-bottom:12px}
+.study-drawers .archive-menu{display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:7px;min-height:65px;padding:12px 8px;border:3px ridge #936940;background:linear-gradient(#b58b58,#987042);box-shadow:0 4px 4px #2f1b10;color:#35261b;text-align:left;cursor:pointer}
+.study-drawers .archive-menu span{font-size:22px}
+.study-drawers .archive-menu b{font-size:13px}
+.study-drawers .archive-menu small{font-size:11px}
+.study-drawers-base{margin-top:auto;text-align:center;font-size:11px;color:#dcc59c;line-height:1.6;padding-top:17px}
+.study-writing-desk{position:relative;min-width:0;padding:16px;border-radius:7px;background:#4c2f20;box-shadow:inset 0 0 15px #220f08}
+.study-paper{min-height:630px;background:linear-gradient(95deg,#d5bd97,#f4e5c6 12%,#f0ddb6 90%,#c5a67c);padding:27px 32px;color:#4f3926;box-shadow:0 9px 14px #160b0666,inset 0 0 20px #9b76485a;max-height:850px;overflow-y:auto;font-family:Georgia,'Malgun Gothic',serif}
+.study-paper :is(h2,h3){font-family:Georgia,'Malgun Gothic',serif}
+.study-feather{position:absolute;bottom:10px;right:13px;font-size:22px;color:#9a723b;pointer-events:none;transform:rotate(22deg)}
+.study-desk-footer{display:flex;justify-content:space-around;gap:15px;margin-top:17px;color:#e8cda5;font-size:12px}
+.archive-back{background:transparent;border:0;border-bottom:1px solid currentColor;font:inherit;font-size:12px;color:inherit;cursor:pointer;padding:4px 0}
+.archive-welcome{text-align:center;padding:16px 8px 25px}
+.archive-emblem{font-size:42px;color:#926b3d}
+.archive-welcome h2{font:27px Georgia,'Malgun Gothic',serif;margin:6px 0}
+.archive-welcome p{opacity:.76;font-size:14px;line-height:1.6}
+.archive-welcome small{opacity:.65}
+.archive-home-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.archive-home-menu .archive-menu{border:1px solid #ba9c70;border-radius:4px;padding:19px 13px;background:linear-gradient(#eee0c5,#d7bf94);color:#65452a;text-align:center;display:grid;gap:4px;justify-items:center;cursor:pointer;box-shadow:1px 3px 4px #4e2c174d}
+.archive-home-menu .archive-menu span{font-size:25px}
+.archive-home-menu .archive-menu b{font-size:14px}
+.archive-home-menu .archive-menu small{font-size:11px;opacity:.7}
+.archive-folder-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px}
+.archive-folder{background:#e7cea8;border:2px solid #af8757;border-radius:4px;color:inherit;padding:18px 12px;display:grid;gap:5px;justify-items:center;cursor:pointer}
+.archive-folder span{font-size:28px}
+.archive-folder b{text-align:center;font-size:14px}
+.archive-folder small{opacity:.67;font-size:11px}
+.archive-entry-list{display:grid;gap:2px;margin:20px 0}
+.archive-entry{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;text-align:left;background:transparent;border:0;border-bottom:1px solid #c4a882;padding:11px 3px;color:inherit;cursor:pointer}
+.archive-entry>span{font-size:20px}
+.archive-entry>b{font-size:14px}
+.archive-entry>small,.archive-entry>time{opacity:.75;font-size:11px}
+.archive-document{padding:8px;line-height:1.8}
+.archive-document>small{opacity:.67}
+.archive-document h2{font:26px Georgia,'Malgun Gothic',serif;border-bottom:1px solid #b19264;margin:16px 0;padding-bottom:15px}
+.archive-text{white-space:pre-wrap;line-height:1.9;font-size:14px}
+.archive-empty{opacity:.72;padding:15px;font-size:13px}
+.wizard-world{max-width:1200px;margin:auto;color:#e9dafa;border:3px double #b18bd9;border-radius:110px 110px 18px 18px;background:radial-gradient(ellipse at 50% 0,#4b3576,transparent 50%),linear-gradient(#1a1331,#100e25);box-shadow:0 0 0 6px #26203f,0 20px 35px #0009;overflow:hidden}
+.wizard-arch{text-align:center;padding:25px 15px 11px;border-bottom:1px solid #8264a9}
+.wizard-top-runes{font:18px Georgia,serif;letter-spacing:.4em;color:#dabb82}
+.wizard-arch h2{font:30px Georgia,'Malgun Gothic',serif;letter-spacing:.1em;margin:9px 0 4px;color:#f2ddff}
+.wizard-arch p{font-size:12px;color:#c5b3da;margin:0 0 8px}
+.wizard-desk{display:grid;grid-template-columns:minmax(175px,245px) minmax(0,1fr);gap:15px;padding:18px}
+.wizard-shelves{border:3px double #8575ab;border-radius:15px;background:linear-gradient(#241c4e,#161434);padding:20px 12px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 0 24px #a784ef33}
+.wizard-focus-gem{margin:0 auto 15px;height:75px;width:75px;border-radius:50%;display:grid;place-items:center;font-size:32px;color:#fff;background:radial-gradient(circle at 35% 25%,#f6fbff,#a39af3 28%,#554181 55%,#1c174e 80%);border:2px solid #c6b4ee;box-shadow:0 0 18px #a7a8ea}
+.wizard-shelves .archive-menu{background:linear-gradient(90deg,#332658,#44346e);border:1px solid #806cab;color:#f4eaff;border-radius:8px;padding:12px 9px;display:grid;grid-template-columns:25px minmax(0,1fr) auto;gap:5px;text-align:left;align-items:center;cursor:pointer}
+.wizard-shelves .archive-menu span{font-size:20px;color:#d7bdfb}
+.wizard-shelves .archive-menu b{font-size:13px}
+.wizard-shelves .archive-menu small{opacity:.65}
+.wizard-shelves>small{margin-top:auto;text-align:center;color:#ad9bc9;font-size:11px}
+.wizard-manuscript{position:relative;background:linear-gradient(100deg,#302347,#49345b 15%,#403056 84%,#31233f);border:6px double #9b77c7;border-radius:12px;color:#f0e3ff;padding:19px 27px 26px;min-width:0;max-height:825px;overflow-y:auto;box-shadow:inset 0 0 25px #050012}
+.wizard-page-ornament,.wizard-page-bottom{text-align:center;font:16px Georgia,serif;color:#d6b78a;letter-spacing:.3em}
+.wizard-page-bottom{font-size:10px;margin-top:30px}
+.wizard-manuscript .archive-emblem{color:#e7cbff}
+.wizard-manuscript .archive-home-menu .archive-menu{background:#5c467b88;border:1px solid #8f77ad;color:#f5edff;border-radius:10px;box-shadow:none}
+.wizard-manuscript .archive-folder{background:#59436e;color:#f4e8ff;border-color:#9b81b6}
+.wizard-manuscript .archive-entry{border-color:#765f92}
+.wizard-manuscript .archive-document h2{border-color:#9e80bc}
+
+/* Diary 2: ring bound, contemporary lined notebook. */
+.diary-alt{max-width:900px;margin:0 auto;min-width:0}
+.diary-alt.modern-note{padding:21px 23px 26px 64px;background:linear-gradient(110deg,#dedee0,#f7f7f8 15%,#fff 92%);color:#243148;border:1px solid #bfc7d1;border-radius:11px;box-shadow:6px 9px 25px #0007, inset 12px 0 #e3e3e7;position:relative}
+.diary-alt.modern-note:before{content:'';position:absolute;top:0;bottom:0;left:36px;width:10px;background:repeating-linear-gradient(to bottom,transparent 0,transparent 22px,#8393a4 23px,#cdd8dc 32px,transparent 33px,transparent 57px);filter:drop-shadow(1px 2px 2px #8893a8);border-radius:3px}
+.diary-alt.modern-note:after{content:'';position:absolute;top:0;bottom:0;left:61px;width:1px;background:#ec929d}
+.diary-alt.modern-note .diary-alt-head{border-bottom:2px solid #d5e0eb;margin-bottom:15px;padding-bottom:14px;color:#364861}
+.diary-alt.modern-note .diary-alt-head b{font:23px system-ui,'Malgun Gothic',sans-serif}
+.diary-alt.modern-note .diary-alt-paper{border:0;padding:10px 19px 45px;min-height:580px;background:repeating-linear-gradient(to bottom,transparent 0,transparent 33px,#c9dbe9 34px,#c9dbe9 35px);border-radius:0}
+.diary-alt.modern-note .diary-alt-paper h2{font:27px system-ui,sans-serif;margin:12px 0 18px}
+.diary-alt.modern-note .diary-alt-body{font-size:15px;line-height:35px;white-space:pre-wrap;min-height:380px}
+.diary-alt.modern-note .diary-alt-meta{color:#78869a;font-size:12px;border-bottom:1px solid #bfcce0;padding-bottom:7px}
+.diary-alt.modern-note .diary-sign{font-size:13px;text-align:right;margin-top:35px}
+/* Diary 3: Korean traditional folio, brush script visual, red seal. */
+.diary-alt.classic-paper{padding:26px 22px 28px;color:#3b3024;border:11px ridge #6e4a30;border-radius:12px;background:repeating-linear-gradient(92deg,#5c3827,#704a2d 52px,#61402a 96px);box-shadow:0 19px 38px #0008}
+.diary-alt.classic-paper .diary-alt-head{font-family:Georgia,'Malgun Gothic',serif;align-items:center;padding:8px 20px;color:#f0d6ad}
+.diary-alt.classic-paper .diary-alt-head b{letter-spacing:.19em;font-size:23px}
+.diary-alt.classic-paper .diary-alt-paper{margin:10px auto;max-width:750px;min-height:620px;border-radius:2px;border:1px solid #c1a071;box-shadow:inset 0 0 35px #c2985b66;background:linear-gradient(95deg,#cab58f,#edddb7 12%,#f2e4c5 87%,#d4ba89);padding:35px 48px;position:relative}
+.diary-alt.classic-paper .diary-alt-paper:before{content:'日記';position:absolute;right:15px;top:30px;writing-mode:vertical-rl;font:24px Georgia,serif;color:#7b5239;letter-spacing:.5em;border-left:1px solid #b49973;padding-left:9px}
+.diary-alt.classic-paper .diary-alt-meta{color:#896b4b}
+.diary-alt.classic-paper .diary-alt-paper h2{font:26px Georgia,'Malgun Gothic',serif;color:#553a27;letter-spacing:.07em;margin-bottom:25px;border-bottom:1px solid #b39169;padding-bottom:15px}
+.diary-alt.classic-paper .diary-alt-body{font-family:Georgia,'Malgun Gothic',serif;white-space:pre-wrap;line-height:2.25;font-size:16px;color:#3d3428;min-height:410px}
+.diary-alt.classic-paper .diary-sign{font-family:Georgia,'Malgun Gothic',serif;text-align:right;padding:20px 0 25px;color:#79392d}
+.diary-alt.classic-paper .diary-sign:after{content:' 印';display:inline-block;color:#ae4033;border:2px double #ae4033;padding:3px 5px;font-size:11px;margin-left:8px;transform:rotate(-9deg)}
+/* Diary 4: illuminated book and scroll edges, dark royal leather + parchment. */
+.diary-alt.fantasy-parchment{padding:25px;border:12px ridge #8c6c44;border-radius:28px;background:linear-gradient(130deg,#21162e,#3d264c,#21162e);box-shadow:0 0 0 2px #d0b16f,0 21px 43px #000b;color:#5c412a;position:relative}
+.diary-alt.fantasy-parchment .diary-alt-head{margin:0 12px 16px;color:#f2d9aa;justify-content:center;text-align:center;flex-direction:column;align-items:center}
+.diary-alt.fantasy-parchment .diary-alt-head b{font:25px Georgia,'Malgun Gothic',serif;letter-spacing:.09em}
+.diary-alt.fantasy-parchment .diary-alt-paper{border:4px double #a3814f;border-radius:95px 95px 15px 15px;min-height:650px;margin:0 auto;max-width:790px;padding:54px 45px 44px;background:radial-gradient(circle at 50% 20%,#fcf0d4,#e8d5ab 70%,#cbb181);box-shadow:inset 0 0 35px #9a7745a6,0 0 0 8px #50344b;position:relative}
+.diary-alt.fantasy-parchment .diary-alt-paper:before{content:'✧　◇　✧　◇　✧';position:absolute;top:17px;left:0;right:0;text-align:center;color:#947346;font-size:18px}
+.diary-alt.fantasy-parchment .diary-alt-paper:after{content:'❦';position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:25px;color:#947346}
+.diary-alt.fantasy-parchment .diary-alt-meta{justify-content:center;color:#8f7251}
+.diary-alt.fantasy-parchment .diary-alt-paper h2{text-align:center;font:29px Georgia,'Malgun Gothic',serif;color:#61432c;border-bottom:1px solid #b5956d;padding-bottom:16px}
+.diary-alt.fantasy-parchment .diary-alt-body{font:16px/2 Georgia,'Malgun Gothic',serif;white-space:pre-wrap;color:#4d3827;min-height:390px}
+.diary-alt.fantasy-parchment .diary-sign{text-align:right;margin:25px 0;color:#86623f}
+
+/* Noticeboards: the surface is real timber with pinned papers and posters. */
+.notice-world{max-width:1200px;margin:auto;border:9px solid #694a2d;background:#65422d;border-radius:17px;color:#453424;box-shadow:0 17px 35px #0009, inset 0 0 15px #c09b6488;overflow:hidden;font-family:Georgia,'Malgun Gothic',serif}
+.notice-roof{text-align:center;padding:21px 10px 18px;color:#eddbb2;background:linear-gradient(#4a2b1d,#66452a);border-bottom:9px ridge #a57a4c}
+.notice-roof>span{letter-spacing:.5em;color:#dabb88}
+.notice-roof h1{margin:5px;font:29px Georgia,'Malgun Gothic',serif;letter-spacing:.08em}
+.notice-roof small{opacity:.8}
+.notice-frame{position:relative;padding:20px 27px 33px;background:repeating-linear-gradient(0deg,#65452e,#704d34 28px,#62402d 57px)}
+.notice-ropes{position:absolute;top:2px;right:14px;color:#d1a776;font-size:10px}
+.notice-board-wood{border:12px ridge #987449;border-radius:6px;min-height:590px;padding:18px;background:radial-gradient(circle,#a88059,#825934 75%);box-shadow:inset 0 0 20px #3a2014}
+.notice-paper-area{color:#503925}
+.notice-section-title{font-size:18px;font-weight:900;color:#fff0d0;text-shadow:0 2px 2px #402112;margin:10px 0 15px;text-align:center;letter-spacing:.08em}
+.notice-board-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:17px;margin:0 0 26px}
+.notice-board-link{position:relative;min-height:100px;padding:23px 13px 13px;border:0;color:#473523;background:linear-gradient(120deg,#f8e8bd,#dbc18f);display:flex;flex-direction:column;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;box-shadow:3px 6px 9px #30180f70;transform:rotate(-1deg);font-family:Georgia,'Malgun Gothic',serif}
+.notice-board-link:nth-child(even){transform:rotate(1.5deg)}
+.notice-board-link strong{font-size:17px}
+.notice-board-link small{font-size:11px;color:#90734f}
+.notice-pin{position:absolute;top:5px;left:50%;color:#9c312b;font-size:14px;text-shadow:0 2px 2px #0004}
+.notice-teasers{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:15px}
+.notice-teaser{min-height:140px;background:linear-gradient(115deg,#fff2d2,#e4cda0);border:1px solid #c9a875;color:#4f3727;box-shadow:2px 5px 9px #2d180e8a;text-align:left;padding:21px 15px;cursor:pointer;display:flex;flex-direction:column;gap:10px;transform:rotate(.5deg);position:relative;font:inherit}
+.notice-teaser:before{content:'●';position:absolute;top:2px;left:49%;color:#a54b3a;font-size:13px;text-shadow:0 2px 3px #0006}
+.notice-teaser:nth-child(even){transform:rotate(-.8deg)}
+.notice-teaser b{font-size:16px;line-height:1.5}
+.notice-teaser small,.notice-teaser span{font-size:11px;color:#91734f}
+.notice-navigation{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 14px;margin-bottom:16px;background:#f1dfb6;color:#543a25;border:1px solid #c0a072}
+.notice-navigation button{border:0;background:transparent;color:#614328;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+.notice-post-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:13px}
+.notice-post-row{position:relative;border:1px solid #bba078;padding:19px 15px;color:#503825;background:linear-gradient(115deg,#faebc8,#e8d2a7);display:flex;align-items:flex-start;flex-direction:column;gap:7px;text-align:left;min-height:138px;cursor:pointer;font:inherit;box-shadow:2px 4px 8px #3920128a}
+.notice-post-row>b{font-size:16px;line-height:1.5}
+.notice-post-row small,.notice-post-row span,.notice-post-row em{font-size:11px;color:#927148;font-style:normal}
+.notice-sheet{background:linear-gradient(120deg,#f7e7c1,#e5c998);border:1px solid #b79765;min-height:500px;padding:30px 33px;margin:auto;max-width:850px;box-shadow:3px 8px 16px #28190f94;color:#4c3926}
+.notice-sheet h2{font:26px Georgia,'Malgun Gothic',serif;border-bottom:2px solid #a98a65;margin:0 0 12px;padding-bottom:15px}
+.notice-byline{font-size:12px;color:#896d4d}
+.notice-body{font-size:15px;white-space:pre-wrap;line-height:1.95;min-height:160px;margin:27px 0}
+.notice-comments{border-top:2px solid #b59c77;padding:16px 0 0}
+.notice-comments h3{font-size:16px}
+.notice-comment{padding:10px 4px;border-bottom:1px solid #cbb389;display:grid;grid-template-columns:26px minmax(0,1fr);gap:3px 8px;font-size:13px}
+.notice-comment>p{grid-column:2;white-space:pre-wrap;margin:0;line-height:1.65}
+.notice-comment small{color:#9b7750}
+.notice-seal-deco{position:absolute;bottom:5px;right:14px;color:#f5e0b3;font-size:15px}
+.notice-world.fantasy{background:#3b2831;border-color:#9b744c;color:#f3daba;box-shadow:0 0 0 2px #b28a58,0 20px 38px #0009}
+.notice-world.fantasy .notice-roof{background:linear-gradient(#282137,#493448);color:#f4dbac}
+.notice-world.fantasy .notice-board-wood{background:radial-gradient(circle,#76533e,#442e33)}
+.notice-world.fantasy .notice-board-link,.notice-world.fantasy .notice-teaser,.notice-world.fantasy .notice-post-row{background:linear-gradient(115deg,#ecd7ab,#d0b080);border:2px solid #b89455;box-shadow:inset 0 0 8px #cba96e,3px 6px 10px #1b0d10}
+.notice-world.fantasy .notice-pin{color:#8655a2}
+
+/* American imageboard, classic flat threaded layout. Not a woodboard. */
+.imageboard-site{max-width:1170px;margin:auto;border:1px solid #aab6c5;padding:0 0 35px;background:#eef2fd;color:#253352;font:13px Arial,'Malgun Gothic',sans-serif}
+.imageboard-header{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;background:#d9e2f3;color:#334b72;border-bottom:1px solid #b6c7e1;padding:7px 11px;font-size:12px}
+.imageboard-header span{font-size:11px}
+.imageboard-title{text-align:center;font-weight:900;color:#bb414d;font-size:28px;padding:23px 8px 9px}
+.imageboard-notice{text-align:center;font-size:11px;margin-bottom:14px;color:#636e87}
+.imageboard-content{padding:10px 17px}
+.imageboard-site .notice-section-title{color:#2d4b73;background:#cfdced;text-shadow:none;padding:8px 10px;text-align:left;margin:8px 0;font:700 14px Arial,sans-serif}
+.imageboard-site .notice-board-links{grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:8px}
+.imageboard-site .notice-board-link{transform:none!important;border:1px solid #b7c6da;border-radius:0;background:#e2eafa;min-height:54px;box-shadow:none;color:#35517a;align-items:flex-start;justify-content:center;padding:10px 12px}
+.imageboard-site .notice-pin{display:none}
+.imageboard-site .notice-teasers{display:grid;grid-template-columns:1fr;gap:9px}
+.imageboard-site .notice-teaser{transform:none!important;min-height:0;background:#dde4f3;border:1px solid #b8c4d8;color:#244172;box-shadow:none;padding:11px 12px;gap:5px}
+.imageboard-site .notice-teaser:before{display:none}
+.imageboard-site .notice-post-list{grid-template-columns:1fr;gap:11px}
+.imageboard-site .notice-post-row{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:3px 11px;background:#dce4f3;color:#293e66;min-height:75px;border:1px solid #a6b7cf;border-radius:0;box-shadow:none;padding:11px}
+.imageboard-site .notice-post-row:before{content:'▧';grid-row:1 / span 3;font-size:25px;color:#7b9ab4;align-self:center}
+.imageboard-site .notice-post-row b{grid-column:2;font-size:15px;color:#2d4975}
+.imageboard-site .notice-post-row span{grid-column:2;font-size:11px;color:#446b8a}
+.imageboard-site .notice-post-row em{grid-column:3;grid-row:1 / span 3;align-self:center;color:#446b8a}
+.imageboard-site .notice-post-row small{display:none}
+.imageboard-site .notice-sheet{max-width:none;min-height:450px;border:1px solid #a8b8d2;background:#dfe7f4;color:#273a56;box-shadow:none;padding:17px 22px}
+.imageboard-site .notice-body{font-size:15px;line-height:1.7}
+.imageboard-site .notice-comment{background:#d5dfed;border-left:3px solid #a3b7d5;padding:9px 11px;margin:8px 0}
+.imageboard-site .notice-navigation{background:#cfdced;color:#304f7e;border-color:#a2b4cb}
+.imageboard-site .notice-sheet h2{font:22px Arial,'Malgun Gothic',sans-serif;border-color:#a9b8d2;color:#245081}
+.imageboard-footer{text-align:center;padding:12px;font-size:11px;color:#61748e}
+/* Japanese 2ch style: plain boxed HTML, monospaced numbered threads, no cards. */
+.textboard-site{max-width:1170px;margin:auto;background:#f5f5f5;color:#333;border:6px solid #608b8c;box-shadow:0 0 0 1px #8eb9b7;font:13px Arial,'Malgun Gothic',sans-serif;padding:11px 16px 26px}
+.textboard-top{background:#d9e9e8;color:#174b4f;border-bottom:3px double #5f9392;font-weight:900;text-align:center;font-size:20px;padding:9px}
+.textboard-nav{text-align:center;padding:12px;color:#286263}
+.textboard-nav button{background:transparent;border:0;color:#246e87;text-decoration:underline;cursor:pointer}
+.textboard-main{padding:14px 10px}
+.textboard-intro{background:#fff;border:1px dotted #6b9da0;padding:10px;margin-bottom:20px;font-size:12px}
+.textboard-site .notice-section-title{color:#155e62;text-align:left;text-shadow:none;border-bottom:2px solid #78adae;font:bold 16px Arial,sans-serif;padding-bottom:8px}
+.textboard-site .notice-board-links{display:block}
+.textboard-site .notice-board-link{transform:none!important;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;padding:8px 3px;min-height:0;background:transparent;border:0;border-bottom:1px dotted #b0c7c4;color:#22688b;box-shadow:none;text-align:left}
+.textboard-site .notice-pin{display:none}
+.textboard-site .notice-board-link strong{text-decoration:underline;font-size:13px}
+.textboard-site .notice-teasers{display:block}
+.textboard-site .notice-teaser{transform:none!important;display:block;min-height:0;background:none;box-shadow:none;color:#286285;border:0;border-bottom:1px dotted #93a7a6;padding:9px 3px}
+.textboard-site .notice-teaser:before{display:none}
+.textboard-site .notice-teaser>b{display:inline;text-decoration:underline;font-size:14px}
+.textboard-site .notice-teaser>small{display:inline;color:#6c7d7e;margin-right:9px}
+.textboard-site .notice-post-list{display:block}
+.textboard-site .notice-post-row{display:flex;align-items:baseline;flex-direction:row;gap:8px;background:none;border:0;border-bottom:1px dotted #8aa6a4;min-height:0;padding:10px 4px;box-shadow:none;color:#2f6587}
+.textboard-site .notice-post-row b{font-size:14px;text-decoration:underline}
+.textboard-site .notice-post-row span,.textboard-site .notice-post-row em{font-size:11px;color:#667c7c}
+.textboard-site .notice-sheet{max-width:none;min-height:420px;border:1px solid #afc5c2;background:#fff;box-shadow:none;color:#252b29;padding:20px 18px}
+.textboard-site .notice-sheet h2{font:18px Arial,sans-serif;border-color:#b4cdca}
+.textboard-site .notice-comment{display:block;padding:10px 0;border:0}
+.textboard-site .notice-comment small{color:#4d8c52;margin-right:8px}
+.textboard-site .notice-comment b{color:#397a51}
+.textboard-site .notice-comment p{margin:6px 0 0 25px;line-height:1.6;font-size:13px}
+.textboard-site .notice-navigation{background:#e2eeee;border:1px solid #9bc1bd}
+.textboard-footer{text-align:center;color:#4e797b;border-top:2px solid #a2c4c0;padding-top:11px;font-size:11px}
+
+/* Printed newspaper and imperial broadside, not card lists. */
+.gazette-paper{max-width:1140px;margin:auto;background:#e9d8b5;color:#3e3226;padding:20px;border:9px ridge #7a5a35;box-shadow:0 17px 43px #0009;font-family:Georgia,'Malgun Gothic',serif}
+.gazette-paper.classic{background:linear-gradient(130deg,#d1b687,#f4e5c1 28%,#ebdbb5 75%,#c9aa79);border-color:#84562f;border-radius:5px}
+.gazette-paper.fantasy{background:linear-gradient(130deg,#c9b080,#fff1d5 28%,#e0cb9f 75%,#ae895d);border-color:#a18554;box-shadow:0 0 0 2px #c09c64,0 22px 45px #000a}
+.gazette-inner{border:3px double #735737;padding:19px 24px;min-height:640px}
+.gazette-paper.fantasy .gazette-inner{border:5px double #8f7248;box-shadow:inset 0 0 18px #8b5f2c4d}
+.gazette-head{text-align:center}
+.gazette-minor{display:flex;justify-content:space-between;gap:7px;border-bottom:2px solid #4c3929;border-top:1px solid #4c3929;padding:6px 3px;font-size:11px}
+.gazette-head h1{font:clamp(30px,4vw,57px) Georgia,'Malgun Gothic',serif;letter-spacing:.09em;color:#392d23;border-bottom:5px double #614930;margin:10px 0 6px;padding:0 0 11px}
+.gazette-paper.fantasy .gazette-head h1{font-style:italic;letter-spacing:.03em;color:#64462e}
+.gazette-slogan{font-size:12px;letter-spacing:.12em}
+.gazette-cats{display:flex;flex-wrap:wrap;justify-content:center;gap:2px;margin:13px 0 22px;border-top:1px solid #8f7957;border-bottom:1px solid #8f7957;padding:7px}
+.gazette-cats button{border:0;border-right:1px solid #b69c74;color:#4e3b2c;background:none;padding:4px 11px;font-size:12px;cursor:pointer}
+.gazette-front{display:grid;gap:19px}
+.gazette-lead{display:block;width:100%;background:transparent;border:0;border-bottom:4px double #826a47;color:inherit;padding:10px 10px 24px;text-align:center;cursor:pointer;font:inherit}
+.gazette-category,.gazette-article-meta{font-size:12px;font-weight:700;color:#8d5336}
+.gazette-lead h2{font:clamp(23px,3vw,39px) Georgia,'Malgun Gothic',serif;line-height:1.3;letter-spacing:.025em;margin:11px 0}
+.gazette-lead p{font-size:15px;line-height:1.7}
+.gazette-lead small{opacity:.68}
+.gazette-columns{columns:3 210px;column-gap:20px;column-rule:1px solid #ac9472;min-height:260px}
+.gazette-brief{break-inside:avoid;display:block;width:100%;background:none;border:0;border-bottom:1px solid #b49e7c;color:inherit;cursor:pointer;font:inherit;padding:9px 0 20px;text-align:left}
+.gazette-brief small{font-size:10px;color:#916a48}
+.gazette-brief h3{font-size:20px;line-height:1.4;margin:9px 0}
+.gazette-brief p{font-size:13px;line-height:1.7}
+.gazette-detail{padding:5px 9px 25px}
+.gazette-back{border:0;border-bottom:1px solid #73593a;color:#755439;background:none;font:inherit;font-size:13px;cursor:pointer}
+.gazette-article-meta{text-align:center;padding:22px 0 6px}
+.gazette-detail h2{text-align:center;font:clamp(27px,3vw,42px) Georgia,'Malgun Gothic',serif;line-height:1.35;margin:14px 0;border-bottom:3px double #937550;padding-bottom:18px}
+.gazette-lede{font-weight:700;font-size:17px;text-align:center;line-height:1.8}
+.gazette-article-body{white-space:pre-wrap;font:15px/2 Georgia,'Malgun Gothic',serif;columns:2 260px;column-gap:32px;column-rule:1px solid #b19a76;margin:29px 0;min-height:200px}
+.gazette-readers{border-top:2px solid #a28b67;margin-top:30px;padding:13px 0}
+.gazette-readers h3{font-size:16px}
+.gazette-readers p{font-size:13px;border-bottom:1px solid #bfaa8b;padding-bottom:8px;line-height:1.7}
+.gazette-end{text-align:center;border-top:3px double #705635;padding-top:11px;font-size:12px;letter-spacing:.1em;color:#795f40;margin-top:25px}
+
+/* Bookish encyclopedia and codex share book mechanics but distinct binding and ink. */
+.codex-world{max-width:1240px;margin:auto;min-width:0;padding:20px 21px;border-radius:18px;color:#3e3429;font-family:Georgia,'Malgun Gothic',serif}
+.codex-world.classic{background:repeating-linear-gradient(90deg,#593c2a,#795439 70px,#67432e 125px);border:10px ridge #755033;box-shadow:0 16px 38px #0008}
+.codex-world.fantasy{background:linear-gradient(145deg,#1d1838,#40305c,#201732);border:11px ridge #9f7e54;color:#e3d1ae;box-shadow:0 0 0 2px #9c79c9,0 16px 42px #0009}
+.codex-cover{padding:7px;border:4px solid #5a392c;border-radius:15px;background:#42291f}
+.codex-world.fantasy .codex-cover{border-color:#b18c65;background:#22162f}
+.codex-book{display:grid;grid-template-columns:minmax(170px,32%) 12px minmax(0,1fr);min-height:680px;border:2px solid #c2a477;border-radius:9px;background:linear-gradient(90deg,#dcc69e,#f1e0b9 27%,#cfb386 32%,#ad8f67 33%,#f2dfbc 36%,#efddb8 92%,#ccb087);box-shadow:inset 0 0 23px #896e4888;color:#493728}
+.codex-left{border-right:1px solid #a78b68;padding:23px 15px;min-width:0}
+.codex-gutter{background:linear-gradient(90deg,#a88d63,#6b513b 45%,#c0a377 100%);box-shadow:inset 0 0 6px #2d1b13}
+.codex-right{padding:26px 31px 15px;min-width:0;max-height:1000px;overflow-y:auto}
+.codex-brand{text-align:center;border-bottom:3px double #94764f;padding-bottom:25px;margin-bottom:20px}
+.codex-brand>span{display:block;font-size:43px;color:#895b39;margin:0 auto 10px}
+.codex-brand strong{display:block;font-size:21px;line-height:1.4}
+.codex-brand small{display:block;font-size:11px;opacity:.65;margin-top:7px;line-height:1.5}
+.codex-nav-title{font-size:14px;font-weight:850;border-bottom:1px solid #a7906f;padding:6px 0 12px}
+.codex-index{max-height:550px;overflow-y:auto;margin-top:10px;display:grid;align-content:start;gap:5px}
+.codex-index-row{display:grid;grid-template-columns:23px minmax(0,1fr);gap:7px;align-items:center;width:100%;padding:10px 5px;background:none;border:0;border-bottom:1px dotted #aa916b;color:inherit;text-align:left;cursor:pointer;font:inherit;font-size:13px}
+.codex-index-row.active{background:#cfb68e75}
+.codex-index-row span{color:#8b653f}
+.codex-ornament{text-align:center;color:#8f7153;margin-top:22px;font-size:13px}
+.codex-landing{text-align:center}
+.codex-initial{margin:20px auto 8px;font-size:43px;color:#9c7646}
+.codex-landing h2{font-size:29px;margin:8px}
+.codex-landing>p{font-size:13px;color:#887253}
+.codex-entries{display:grid;gap:3px;margin:24px 0;text-align:left}
+.codex-entry{width:100%;border:0;border-bottom:1px solid #c8af87;background:transparent;color:inherit;text-align:left;padding:13px 5px;cursor:pointer;font:inherit}
+.codex-entry strong{display:block;font-size:15px}
+.codex-entry small{display:block;font-size:11px;margin-top:5px;color:#847052;line-height:1.6}
+.codex-return{border:0;border-bottom:1px solid #aa8960;background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer;padding:5px 0}
+.codex-article h2{font:29px Georgia,'Malgun Gothic',serif;margin:20px 0 14px;padding-bottom:16px;border-bottom:3px double #967750}
+.codex-tabs{display:flex;gap:7px;margin:0 0 20px}
+.codex-tabs button{background:none;border:1px solid #b59d76;color:inherit;padding:7px 15px;font:inherit;font-size:12px;cursor:pointer}
+.codex-tabs button.active{background:#a7865177;font-weight:800}
+.codex-summary{font-weight:700;line-height:1.8;font-size:14px;margin:14px 0 25px}
+.codex-section h3{font-size:18px;border-bottom:1px solid #b7a17d;padding-bottom:9px;margin-top:27px}
+.codex-paragraph{white-space:pre-wrap;font-size:14px;line-height:2}
+.codex-talk{border-bottom:1px solid #baa580;padding:12px 0}
+.codex-talk p{line-height:1.7;white-space:pre-wrap;font-size:13px}
+.codex-right footer{text-align:center;margin:45px 0 4px;font-size:11px;letter-spacing:.22em;color:#93764c}
+.codex-world.fantasy .codex-book{background:linear-gradient(90deg,#2e2344,#584167 31%,#3e2d55 33%,#231a40 34%,#4c385f 48%,#422f52 92%,#261c42);color:#f5e4c5;border-color:#ad8b66;box-shadow:inset 0 0 32px #070410}
+.codex-world.fantasy .codex-gutter{background:linear-gradient(90deg,#1a142e,#8e70a7,#2d2443)}
+.codex-world.fantasy .codex-brand{border-color:#b4986a}
+.codex-world.fantasy .codex-brand>span{color:#ebc785;text-shadow:0 0 12px #d9b6fa;font-size:52px}
+.codex-world.fantasy :is(.codex-index-row,.codex-nav-title,.codex-article h2,.codex-section h3,.codex-entry,.codex-talk){border-color:#80668f}
+.codex-world.fantasy :is(.codex-landing>p,.codex-entry small,.codex-right footer,.codex-ornament){color:#d7b7d9}
+.codex-world.fantasy .codex-index-row.active,.codex-world.fantasy .codex-tabs button.active{background:#7c609d88}
+.codex-world.fantasy .codex-tabs button{border-color:#8e7aaf}
+
+/* X classic is a stone wall of short overlapping notices. Unlike the threaded community board. */
+.whisper-wall{max-width:1160px;margin:auto;background:repeating-linear-gradient(0deg,transparent 0,transparent 64px,#9a8b7677 65px,#9a8b7677 68px),repeating-linear-gradient(90deg,#b8aa93 0,#c1b49a 110px,#ad9e85 112px,#beb19b 230px);border:11px ridge #79694f;color:#4f3a2b;box-shadow:0 20px 40px #0009;overflow:hidden;font-family:Georgia,'Malgun Gothic',serif}
+.whisper-sky{background:#554332;color:#f0dbb4;text-align:center;padding:9px;letter-spacing:.12em;font-size:12px}
+.whisper-roof{display:flex;align-items:center;justify-content:center;gap:32px;padding:12px;background:#a28b66b5;border-bottom:2px solid #685237}
+.whisper-roof h2{font:27px Georgia,'Malgun Gothic',serif;margin:0}
+.whisper-roof>span{color:#713f2c;font-size:22px}
+.whisper-caption{text-align:center;font-size:12px;color:#6a5540;line-height:1.7}
+.whisper-inner{display:grid;grid-template-columns:minmax(0,1fr) 235px;gap:17px;padding:13px 17px 25px}
+.whisper-notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px;align-content:start}
+.wall-scrap{padding:22px 16px 17px;background:linear-gradient(118deg,#f7ebce,#e3d0a5);color:#503d2b;box-shadow:2px 5px 10px #4c39256b;min-height:145px;transform:rotate(-1deg);position:relative;align-self:start;max-width:100%;overflow-wrap:anywhere}
+.wall-scrap:nth-child(even){transform:rotate(1.5deg);background:linear-gradient(120deg,#e8d5af,#f8e8c9)}
+.wall-scrap:nth-child(3n){transform:rotate(.8deg);background:#e9d9bb}
+.wall-scrap:before{content:'●';position:absolute;top:4px;left:48%;font-size:12px;color:#a44d39;text-shadow:0 1px 3px #0005}
+.micro-post-head{display:flex;gap:4px;flex-wrap:wrap;justify-content:space-between;border-bottom:1px solid #c7ad84;padding-bottom:7px}
+.micro-post-head b{font-size:13px}
+.micro-post-head small{font-size:10px;color:#8b714d}
+.micro-post-text{font-size:13px;white-space:pre-wrap;line-height:1.65;padding:9px 0}
+.micro-post-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:10px;color:#796242}
+.micro-post-actions button{border:0;border-bottom:1px dotted #9e825e;background:none;color:inherit;font:inherit;cursor:pointer}
+.micro-post-replies{border-top:1px dashed #bfa37b;margin-top:12px;font-size:12px}
+.micro-post-replies>div{border-bottom:1px dashed #d3bb91;padding:7px 0}
+.micro-post-replies small{opacity:.7}
+.micro-post-replies p{white-space:pre-wrap;line-height:1.6}
+.whisper-side{border:3px solid #6e543c;background:linear-gradient(#d7c19b,#cbb088);padding:13px 14px;min-width:0;max-height:630px;overflow:auto}
+.whisper-side h3{font:16px Georgia,'Malgun Gothic',serif;border-bottom:2px solid #9e805c;padding-bottom:11px}
+.whisper-side button{border:0;border-bottom:1px solid #ac8f69;background:none;text-align:left;display:block;color:#513e2f;width:100%;padding:11px 3px;cursor:pointer}
+.whisper-side button b,.whisper-side button small{display:block}
+.whisper-side button small{font-size:10px;opacity:.65;margin-top:4px}
+.whisper-side-end{font-size:10px;text-align:center;color:#977852;padding:25px 0}
+.whisper-stones{padding:8px;text-align:center;color:#685744;background:#ae9d86;font-size:13px;letter-spacing:.3em}
+/* Fantasy social timeline is transparent magic-glass, still recognizably microblog. */
+.aether-feed{max-width:1160px;margin:auto;min-height:680px;background:radial-gradient(ellipse at 40% 10%,#423568,#1c1833 48%,#101327);border:3px double #9276d4;border-radius:21px;padding:21px;color:#ecddff;box-shadow:0 0 0 4px #221c3e,0 18px 35px #0009;position:relative;overflow:hidden}
+.aether-lines{position:absolute;inset:0;pointer-events:none;opacity:.18;background:radial-gradient(circle at 18% 12%,#fff 1px,transparent 2px),radial-gradient(circle at 83% 27%,#fff 1px,transparent 2px),radial-gradient(circle at 41% 70%,#fff 1px,transparent 2px);background-size:130px 140px}
+.aether-feed>header{position:relative;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #7f69aa;padding:8px 10px 17px;text-align:center}
+.aether-feed>header>span{font-size:35px;color:#ddc1ff}
+.aether-feed h2{font:29px Georgia,'Malgun Gothic',serif;color:#f3dbff;margin:0}
+.aether-feed>header small{color:#c5b3dc}
+.aether-layout{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 230px;gap:16px;margin-top:22px}
+.aether-stream-title{text-align:center;margin:5px 0 17px;color:#e2c3ed;letter-spacing:.2em}
+.aether-layout>main{display:grid;gap:13px;align-content:start}
+.aether-post{padding:18px 19px 17px;background:linear-gradient(110deg,#45345b99,#332a5b88);color:#f0e5ff;border:1px solid #8e76ba;border-radius:17px 5px 17px 5px;box-shadow:inset 3px 0 0 #bd9ae6,0 5px 13px #08071b55;position:relative}
+.aether-post:before{content:'✧';position:absolute;left:8px;top:10px;color:#c5a1ee;font-size:11px}
+.aether-post .micro-post-head{border-color:#7f699d;padding-left:13px}
+.aether-post .micro-post-head small{color:#c6b1de}
+.aether-post .micro-post-text{font-size:14px;line-height:1.7;padding:14px 12px}
+.aether-post .micro-post-actions{color:#d2b3ef;font-size:12px}
+.aether-post .micro-post-replies{border-color:#73608b}
+.aether-post .micro-post-replies>div{border-color:#66557f}
+.aether-layout>aside{border:1px solid #8a76ac;border-radius:16px;padding:15px;background:#30284b9c;align-self:start}
+.aether-crystal{font-size:50px;display:grid;place-items:center;margin:5px auto 18px;width:110px;height:110px;border-radius:50%;background:radial-gradient(#b4a1f2,#6e5baf 38%,#2b295f 65%,#181641);border:2px solid #c9aef0;box-shadow:0 0 23px #a79cf2;color:#f7ecff}
+.aether-crystal small{font-size:10px;display:block;letter-spacing:0;color:#f6e3ff}
+.aether-layout aside h3{font:17px Georgia,'Malgun Gothic',serif;border-bottom:1px solid #886faa;padding-bottom:10px}
+.aether-layout aside button{background:transparent;color:#ebdbfc;width:100%;border:0;border-bottom:1px solid #725f8b;display:block;text-align:left;padding:11px 3px;cursor:pointer}
+.aether-layout aside button b,.aether-layout aside button small{display:block}
+.aether-layout aside button small{color:#b69acb;font-size:10px;margin-top:4px}
+
+/* Responsive stage and constrained reading surfaces. */
+@media (max-width:980px){
+  .arcane-world{grid-template-columns:1fr;max-width:730px}
+  .arcane-device{border-radius:65px 65px 20px 20px;padding:22px 15px}
+  .arcane-orbit{margin:13px auto 12px;width:160px;height:160px}
+  .arcane-orb{width:136px;height:136px;font-size:19px}
+  .arcane-runemenu{max-width:440px;margin:auto}
+  .arcane-records{border-radius:26px;padding:39px 19px 22px}
+  .study-cabinet,.wizard-desk{grid-template-columns:1fr}
+  .study-drawers,.wizard-shelves{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .study-drawers-title,.study-drawers-base,.wizard-focus-gem,.wizard-shelves>small{grid-column:1/-1}
+  .study-paper{min-height:370px}
+  .wizard-manuscript{min-height:370px}
+  .whisper-inner{grid-template-columns:1fr}
+  .whisper-side{max-height:none}
+  .aether-layout{grid-template-columns:1fr}
+  .aether-layout aside{order:-1}
+}
+@media (max-width:620px){
+  .theme-picker{max-width:100%}
+  .flip-top{height:330px;padding:11px}
+  .flip-bottom{height:260px;padding:8px 14px 22px}
+  .letter-table{padding:15px 14px 22px;border-width:7px}
+  .letter-paper{padding:18px 19px 23px}
+  .letter-cover-page h2{font-size:24px}
+  .letter-folder .theme-menu-text{font-size:13px}
+  .arcane-world{gap:16px}
+  .study-world{padding:12px;border-width:6px}
+  .study-paper{padding:20px 17px}
+  .study-drawers .archive-menu{min-height:70px}
+  .wizard-desk{padding:8px}
+  .wizard-manuscript{padding:16px}
+  .diary-alt.modern-note{padding:14px 12px 22px 41px}
+  .diary-alt.modern-note:before{left:20px}
+  .diary-alt.modern-note:after{left:38px}
+  .diary-alt.classic-paper{padding:14px;border-width:7px}
+  .diary-alt.classic-paper .diary-alt-paper{padding:28px 34px 35px 25px}
+  .diary-alt.fantasy-parchment{padding:10px;border-width:7px}
+  .diary-alt.fantasy-parchment .diary-alt-paper{padding:47px 22px 33px;border-radius:65px 65px 12px 12px}
+  .notice-roof h1{font-size:22px}
+  .notice-frame{padding:8px}
+  .notice-board-wood{padding:10px;border-width:6px}
+  .notice-sheet{padding:20px 15px}
+  .imageboard-content,.textboard-main{padding:8px}
+  .gazette-paper{padding:9px;border-width:5px}
+  .gazette-inner{padding:9px 12px}
+  .gazette-cats{padding:5px 0}
+  .gazette-cats button{padding:4px 7px}
+  .gazette-columns{columns:1}
+  .codex-world{padding:10px;border-width:6px}
+  .codex-book{grid-template-columns:1fr;min-height:0}
+  .codex-gutter{height:10px}
+  .codex-left{border-right:0;border-bottom:1px solid #aa9372;padding:15px}
+  .codex-brand{padding-bottom:7px;margin-bottom:10px}
+  .codex-brand>span{font-size:30px}
+  .codex-nav-title,.codex-ornament{display:none}
+  .codex-index{display:flex;max-height:94px;flex-wrap:wrap;overflow:auto;margin:0;gap:3px}
+  .codex-index-row{width:auto;padding:6px 8px;border:1px solid #af976f;border-radius:6px}
+  .codex-right{padding:18px 19px}
+  .whisper-inner{padding:10px}
+  .whisper-notes{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+  .aether-feed{padding:11px}
+  .aether-feed h2{font-size:23px}
+}
+
+
+
+
+/* v0.2.21: left-aligned theme controls, never overlay the reader. */
+.pane-title-row{width:auto;max-width:100%;display:flex;align-items:center;justify-content:flex-start;gap:9px;flex-wrap:wrap}
+.pane-title-row h3{flex:none;margin:0}
+.pane-title .theme-picker{width:196px;max-width:196px;min-width:160px;flex:0 1 196px;padding:3px 6px;justify-content:flex-start;gap:5px}
+.pane-title .theme-picker span{font-size:11px}
+.pane-title .theme-picker select{min-width:0;width:145px;max-width:100%;padding:6px 7px;font-size:12px}
+@media(max-width:900px){.pane-title .theme-picker{width:185px;max-width:185px;flex:0 1 185px}.pane-title .theme-picker select{width:136px}}
+@media(max-width:420px){.pane-title-row{align-items:flex-start}.pane-title .theme-picker{max-width:165px;flex:0 1 165px;min-width:135px}.pane-title .theme-picker select{width:116px}}
+/* Reuse only the selected theme's actual record content. */
+.diary-alt-head small,.gazette-slogan,.imageboard-notice,.textboard-intro,.letter-hanger,.device-caption,.whisper-caption,.wizard-page-bottom,.study-drawers-base,.study-desk-footer,.arcane-pulse{display:none!important}
+.preset-box .preset-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.preset-box .preset-grid select,.preset-box .preset-grid input{width:100%}
+@media(max-width:650px){.preset-box .preset-grid{grid-template-columns:1fr}}
+/* Standalone group chats: character-centric records, four interfaces. */
+.groupchat{display:flex;justify-content:center;min-width:0;padding:14px 5px;color:#18232f}
+.groupchat-case{width:min(100%,660px);height:min(720px,calc(100dvh - 230px));min-height:380px;display:flex;flex-direction:column;border:1px solid #bec6cf;box-shadow:0 8px 25px #0002;overflow:hidden;background:#f5f7fa;border-radius:18px}
+.groupchat-topline{height:35px;flex:none;display:flex;align-items:center;justify-content:center;color:#7c92a1;font-size:11px;letter-spacing:.6em}
+.groupchat-bottomline{height:15px;flex:none;border-top:1px solid #0000000b}
+.group-room-list-head{flex:none;padding:15px 22px;border-bottom:1px solid #0001;font-size:19px}
+.group-rooms{overflow-y:auto;min-height:0;flex:1}
+.group-room{width:100%;display:flex;gap:12px;align-items:center;text-align:left;background:transparent;border:0;border-bottom:1px solid #00000012;padding:14px;color:inherit;min-width:0}
+.group-room:hover{background:#00000008}.group-room.active{background:#0000000c}
+.group-room-avatar,.group-avatar{width:45px;height:45px;display:grid;place-items:center;background:#dddfe4;color:#526076;border-radius:13px;font-weight:800;flex:none}
+.group-room-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}.group-room-copy small{color:#697786;font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.group-count{font-size:12px;color:#7b8792}
+.group-chat-head{display:flex;align-items:center;gap:13px;flex:none;padding:11px 14px;border-bottom:1px solid #00000012}
+.group-chat-head b{flex:1;min-width:0;overflow-wrap:anywhere;font-size:16px}.group-chat-head small{font-size:12px;color:#637587}
+.group-back{border:0;background:none;color:inherit;font-size:27px;line-height:1;padding:0 5px}
+.group-chat-members{display:flex;gap:6px;overflow-x:auto;padding:9px 13px;border-bottom:1px solid #00000010;flex:none}
+.group-chat-members span{white-space:nowrap;background:#0000000b;font-size:10px;border-radius:99px;padding:5px 8px}
+.group-messages{flex:1;min-height:0;overflow:auto;padding:18px 14px;display:flex;flex-direction:column;gap:12px;overscroll-behavior:contain}
+.group-message{display:flex;gap:9px;align-items:flex-start;min-width:0}.group-avatar{width:33px;height:33px;border-radius:12px;font-size:12px}
+.group-message-main{min-width:0;max-width:calc(100% - 42px)}.group-sender{font-size:12px;display:block;margin-bottom:4px}
+.group-message-line{display:flex;align-items:flex-end;gap:7px;min-width:0}
+.group-message-text{padding:11px 13px;white-space:pre-wrap;overflow-wrap:anywhere;background:white;border-radius:5px 13px 13px 13px;max-width:100%;line-height:1.6;box-shadow:0 1px 2px #0001}
+.group-message-line time{white-space:nowrap;font-size:10px;color:#6b7a86;flex:none}
+.group-message.compact{margin-top:-6px}.group-message.compact .group-avatar{visibility:hidden}
+.group-kakao .groupchat-case{background:#b9c9dc;border-color:#7e98b9;max-width:470px;border-radius:20px}
+.group-kakao .groupchat-topline{background:#f9e64a;color:#594700}.group-kakao .group-chat-head,.group-kakao .group-room-list-head{background:#fbe954}
+.group-kakao .group-room-avatar,.group-kakao .group-avatar{background:#fce66e;color:#6d5812}
+.group-kakao .group-message-text{background:#fff;border-radius:4px 13px 13px}
+.group-neutral .groupchat-case{background:#f4f6fa;border-color:#c2ccd8;max-width:530px;border-radius:14px}
+.group-neutral .groupchat-topline{height:12px}.group-neutral .group-chat-head,.group-neutral .group-room-list-head{background:#fff}
+.group-neutral .group-message-text{background:#e3eefa;border-radius:14px}
+.group-fantasy{color:#ebddff}.group-fantasy .groupchat-case{background:radial-gradient(circle at 50% 8%,#32225c,#151229 65%);border:2px solid #9f82d8;border-radius:48px 48px 18px 18px;box-shadow:0 0 25px #7e55c740,inset 0 0 35px #986ce824}
+.group-fantasy .groupchat-topline{color:#d0aaff}.group-fantasy .group-room-avatar,.group-fantasy .group-avatar{background:radial-gradient(circle at 30% 24%,#b8aeec,#533b85);border:1px solid #a999dd;color:#fff;border-radius:50%;box-shadow:0 0 9px #9d7afc50}
+.group-fantasy .group-chat-head,.group-fantasy .group-room-list-head{border-color:#a18cd547;color:#f0e7ff}
+.group-fantasy .group-chat-head small,.group-fantasy .group-count,.group-fantasy .group-room-copy small,.group-fantasy .group-message-line time{color:#c6b1e4}
+.group-fantasy .group-chat-members span{background:#a58be327}.group-fantasy .group-message-text{background:#32264e;color:#fff;border:1px solid #8a75b455;border-radius:15px}
+.group-classic .groupchat-case{max-width:600px;background:linear-gradient(105deg,#d7c09a,#f4e8cb 22%,#e6d2a8 83%,#bb976a);border:9px solid #775339;border-radius:8px;box-shadow:inset 0 0 15px #6443265e,0 13px 32px #0005;color:#503923;font-family:Georgia,'Malgun Gothic',serif}
+.group-classic .groupchat-topline{color:#76553e}.group-classic .group-chat-head,.group-classic .group-room-list-head{border-color:#856b4d55}
+.group-classic .group-room-avatar,.group-classic .group-avatar{background:#e9d9b9;border:1px solid #997959;color:#5e4731;border-radius:2px}
+.group-classic .group-message-text{background:linear-gradient(#fffae9,#eddbb3);border:1px solid #a88b5b;color:#4a3424;border-radius:2px;box-shadow:3px 4px 0 #80644520;transform:rotate(-.35deg)}
+.group-classic .group-chat-members span{background:#9d80502b}.group-classic .group-count,.group-classic .group-room-copy small,.group-classic .group-message-line time,.group-classic .group-chat-head small{color:#886d53}
+.group-message.mine{justify-content:flex-end;flex-direction:row-reverse}
+.group-message.mine .group-avatar{display:none}
+.group-message.mine .group-message-main{display:flex;align-items:flex-end;flex-direction:column}
+.group-message.mine .group-message-line{flex-direction:row-reverse}
+.group-message.mine .group-sender{display:none}
+.group-kakao .group-message.mine .group-message-text{background:#ffe76a;color:#28221c;border-radius:13px 4px 13px 13px}
+.group-neutral .group-message.mine .group-message-text{background:#c8dfed}
+.group-fantasy .group-message.mine .group-message-text{background:#644b98;border-color:#cbb3ff88}
+.group-classic .group-message.mine .group-message-text{background:linear-gradient(#f5e7b4,#e7ca8d);transform:rotate(.35deg)}
+@media(max-width:680px){.groupchat{padding:5px 0}.groupchat-case{width:100%;height:calc(100dvh - 240px);min-height:310px}.group-message-line time{font-size:9px}.group-message-text{padding:10px;font-size:13px}.group-chat-members{padding:7px 8px}}
+
+
 `;
 
-  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, helpOpen:false, globalDeleteConfirm:null, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
+  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, presets:[], presetName:'', presetSelection:'', helpOpen:false, globalDeleteConfirm:null, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
   const host = document.createElement('div');
   host.id = 'prwv-root';
   const root = host.attachShadow({ mode:'closed' });
@@ -1131,8 +1931,16 @@
   }
   function showError(err) { console.error('[가상세계 열람실]', err); flash('오류: ' + String(err?.message || err), 7000); }
   async function saveSettings() { if (state.room) await setGM(configKey(state.room), JSON.stringify(state.settings)); }
+  function sanitizePresets(value) {
+    return arr(value).filter(p=>p && typeof p==='object' && TYPES.some(t=>t.key===p.kind) && typeof p.name==='string' && typeof p.value==='string')
+      .slice(0,300).map(p=>({id:String(p.id||uid()).slice(0,100),kind:p.kind,name:p.name.trim().slice(0,70),value:p.value.slice(0,300000),...((p.kind==='groupchat'&&typeof p.basePrompt==='string')?{basePrompt:(p.basePrompt===LEGACY_GROUPCHAT_BASE_PROMPT?GROUPCHAT_BASE_PROMPT:p.basePrompt).slice(0,300000)}:{})})).filter(p=>p.name);
+  }
+  async function savePresets() { await setGM(KEY_PRESETS, JSON.stringify(state.presets)); }
+  function presetsOf(kind) { return state.presets.filter(p=>p.kind===kind).sort((a,b)=>a.name.localeCompare(b.name,'ko-KR')); }
+  function selectedPreset(kind) {return presetsOf(kind).find(p=>p.id===state.presetSelection)||null;}
+
   async function loadRoom(room) {
-    state.room = room; state.selectedRecord = ''; state.checked.clear(); state.view = 'home'; state.tabletPane='viewer';
+    state.room = room; state.selectedRecord = ''; state.checked.clear(); state.view = 'home'; state.tabletPane='viewer'; state.presetSelection=''; state.presetName='';
     if (!room) { state.entries=[];state.settings=defaultSettings(); render(); return; }
     try {
       const raw = await getGM(configKey(room), '');
@@ -1145,6 +1953,7 @@
   }
   async function init() {
     try { state.key = String(await getGM(KEY_API, '')); state.buttonPosition=JSON.parse(await getGM(KEY_BUTTON,'null')); updateBadgePosition(); } catch (_) {}
+    try {state.presets=sanitizePresets(JSON.parse(await getGM(KEY_PRESETS,'[]')));}catch(e){state.presets=[];}
     await loadRoom(roomFromURL());
     state.initialized = true;
   }
@@ -1255,12 +2064,157 @@
       <div class="archive">${list.slice(0,state.archiveLimit).map(e => `<div class="archive-row ${currentRecord()?.id===e.id?'selected':''}"><button data-act="record" data-id="${esc(e.id)}"><b>${text(labelOf(e),90)}</b><small>${fmtDate(e.createdAt)}${usageSummary(e)}</small></button><button class="button slim ghost" data-act="single-delete" data-id="${esc(e.id)}" style="flex:none">삭제</button></div>`).join('') || '<div class="subtle">아직 생성된 기록이 없어.</div>'}${list.length>state.archiveLimit?`<button class="button slim" data-act="archive-more">더 보기 (${list.length-state.archiveLimit}개 남음)</button>`:''}</div>
     </div>`;
   }
+  function currentTheme(kind=state.type) {
+    return validTheme(kind, state.settings?.themes?.[kind]);
+  }
+  function themePicker(kind=state.type) {
+    const options = themeOptions(kind);
+    if (!options.length) return '';
+    return `<label class="theme-picker"><span>테마</span><select data-field="theme" data-kind="${kind}" aria-label="${text(typeOf(kind).label,30)} 테마 선택">${options.map(opt=>`<option value="${esc(opt.id)}" ${currentTheme(kind)===opt.id?'selected':''}>${text(opt.label,90)}</option>`).join('')}</select></label>`;
+  }
+  function wrapAltDevice(theme, title, subtitle, inner, extra='') {
+    return `<div class="alt-device ${theme}"><div class="alt-device-head"><div><b>${text(title,70)}</b><small>${text(subtitle,140)}</small></div><span class="alt-device-badge">${text(subtitle.split(' · ')[0]||subtitle,26)}</span></div><div class="alt-device-body">${inner}</div>${extra}</div>`;
+  }
+  // Theme-only rendering. All variants read the exact same stored JSON fields.
+  // No extra generation calls and no alteration of the original record.
+  function phoneAltView(data, theme) {
+    const config={
+      retro:{title:'폴더폰',label:{messages:'문자함',calls:'통화기록',searches:'인터넷',notes:'메모장',social:'미니홈피',photos:'사진첩'},icons:{messages:'✉',calls:'☎',searches:'◎',notes:'▤',social:'✿',photos:'▧'}},
+      classic:{title:'서신과 소지품',label:{messages:'서찰 묶음',calls:'전언 기록',searches:'탐문 기록',notes:'비망록',social:'풍문 모음',photos:'그림첩'},icons:{messages:'✉',calls:'♧',searches:'⌕',notes:'▤',social:'❀',photos:'▧'}},
+      fantasy:{title:'마도 통신구',label:{messages:'전언',calls:'교신',searches:'탐색',notes:'마도록',social:'소문',photos:'환영첩'},icons:{messages:'✉',calls:'◇',searches:'✧',notes:'▤',social:'☷',photos:'❖'}}
+    }[theme];
+    if(!config) return '';
+    const keys=['messages','calls','searches','notes','social','photos'];
+    const counts=Object.fromEntries(keys.map(k=>[k,arr(data[k]).length]));
+    const menus=keys.map((k,i)=>`<button class="${theme==='retro'?'flip-item':theme==='classic'?'letter-folder':'magic-rune'}" data-act="view" data-view="${k}"><span class="theme-glyph">${config.icons[k]}</span><span class="theme-menu-text">${config.label[k]}</span><small>${counts[k]}${theme==='retro'?'': '건'}</small>${theme==='retro'?`<i>${i+1}</i>`:''}</button>`).join('');
+    const view=state.view;
+    const goHome=`<button class="theme-go-home" data-act="back" data-to="home">‹ ${theme==='retro'?'취소':theme==='classic'?'서함으로':'통신구로'}</button>`;
+    const heading= view==='thread'?arr(data.messages)[state.subIndex]?.person||'서신':view==='phone-detail'?'기록 상세':config.label[view]||'기록';
+    let detail='';
+    const line=(headline,desc,time,action='')=>`<${action?'button':'div'} class="theme-record-line" ${action||''}><span class="theme-line-heading">${headline}</span><span class="theme-line-desc">${desc}</span>${time?`<time>${time}</time>`:''}</${action?'button':'div'}>`;
+    if(view==='messages') detail=arr(data.messages).map((m,i)=>line(text(m.person,60),text(arr(m.thread).at(-1)?.text||'',140),text(m.time,40),`data-act="viewitem" data-index="${i}"`)).join('');
+    if(view==='calls') detail=arr(data.calls).map(m=>line(text(m.name,80),text(m.kind,80),text(m.time,40))).join('');
+    if(view==='searches') detail=arr(data.searches).map(m=>line(text(m,190),'⌕ '+(theme==='classic'?'탐문':theme==='fantasy'?'마법 탐색':'조회'), '')).join('');
+    if(view==='notes') detail=arr(data.notes).map((m,i)=>line(text(m.title,100),text(m.body,140),'',`data-act="phoneitem" data-source="notes" data-index="${i}"`)).join('');
+    if(view==='photos') detail=`<div class="theme-picture-grid">${arr(data.photos).map((m,i)=>`<button class="theme-picture" data-act="phoneitem" data-source="photos" data-index="${i}"><span>${text(m.emoji||'▧',7)}</span><b>${text(m.caption,70)}</b><small>${text(m.date,45)}</small></button>`).join('')}</div>`;
+    if(view==='social') detail=arr(data.social).map(m=>`<article class="theme-social-entry"><header><b>${text(m.handle,75)}</b><time>${text(m.time,55)}</time></header><p>${textFull(m.text)}</p><small>♡ ${integer(m.likes)} · 댓글 ${arr(m.comments).length}</small>${arr(m.comments).map(c=>`<div class="theme-social-comment"><b>${text(c.by,40)}</b> ${textFull(c.text)}</div>`).join('')}</article>`).join('');
+    if(view==='thread') {
+      const thread=arr(data.messages)[state.subIndex]||{};
+      detail=`<div class="theme-thread">${arr(thread.thread).map(m=>`<div class="theme-message ${m.from==='me'?'out':'in'}"><small>${m.from==='me'?text(data.owner||'나',40):text(thread.person,50)}</small><p>${textFull(m.text)}</p><time>${text(m.time,40)}</time></div>`).join('')}</div>`;
+    }
+    if(view==='phone-detail'){
+      const photo=state.phoneSource==='photos';
+      const item=arr(data[photo?'photos':'notes'])[state.subIndex]||{};
+      detail=photo?`<div class="theme-photo-detail"><div>${text(item.emoji||'▧',7)}</div><h3>${text(item.caption,250)}</h3><small>${text(item.date,70)}</small></div>`:
+        `<div class="theme-document"><h3>${text(item.title||'제목 없는 기록',160)}</h3><div class="theme-longtext">${textFull(item.body)}</div></div>`;
+    }
+    if(!detail) detail='<p class="theme-empty">보관된 기록이 없습니다.</p>';
+    const backTo=view==='thread'?'messages':view==='phone-detail'?(state.phoneSource||'home'):'home';
+    if(theme==='retro') {
+      const screen=view==='home'?`<div class="flip-home"><b>기능 선택</b><div class="flip-menu">${menus}</div></div>`:
+        `<div class="flip-detail"><div class="flip-detail-head"><button data-act="back" data-to="${backTo}">◂</button><b>${text(heading,75)}</b></div><div class="flip-detail-list">${detail}</div></div>`;
+      const keypad=[['1','messages'],['2','calls'],['3','searches'],['4','notes'],['5','social'],['6','photos'],['7','home'],['8','home'],['9','home'],['*','home'],['0','home'],['#','home']].map(([n,target])=>`<button class="flip-key" data-act="view" data-view="${target}"><b>${n}</b><small>${({1:'',2:'ABC',3:'DEF',4:'GHI',5:'JKL',6:'MNO',7:'PQRS',8:'TUV',9:'WXYZ'})[n]||' '}</small></button>`).join('');
+      return `<div class="flip-display-wrap"><div class="flip-phone"><div class="flip-top"><div class="flip-ear"></div><div class="flip-lcd"><div class="flip-status"><span>▣ 통신</span><span>◕ ▰▰▰</span></div>${screen}<div class="flip-softkeys"><button data-act="back" data-to="home">메뉴</button><span>${text(data.owner||'개인 기록',40)}</span><button data-act="back" data-to="${backTo}">취소</button></div></div></div><div class="flip-hinge"></div><div class="flip-bottom"><div class="flip-controls"><button data-act="back" data-to="${backTo}">↶</button><button class="flip-dpad" data-act="view" data-view="home">◆</button><button data-act="view" data-view="calls">☎</button></div><div class="flip-keys">${keypad}</div></div></div></div>`;
+    }
+    if(theme==='classic') {
+      const page=view==='home'?`<div class="letter-cover-page"><div class="letter-calligraphy">私人書函</div><h2>개인 서신함</h2><div class="letter-items">${menus}</div></div>`:
+        `<div class="letter-read-page"><div class="letter-read-top"><button data-act="back" data-to="${backTo}">‹ 뒤로</button><span>서고 기록</span></div><div class="letter-inkline"></div><h2>${text(heading,85)}</h2><div class="letter-read-content">${detail}</div></div>`;
+      return `<div class="letter-world"><div class="letter-table"><div class="letter-cord"></div><div class="letter-box"><div class="letter-spine"></div><div class="letter-paper">${page}</div><span class="letter-seal">封</span></div></div></div>`;
+    }
+    const right=view==='home'?`<div class="arcane-intro">${arr(data.messages).slice(0,5).map(m=>`<div class="theme-record-line"><span class="theme-line-heading">${text(m.person,60)}</span><span class="theme-line-desc">${text(arr(m.thread).at(-1)?.text||'',140)}</span><time>${text(m.time,40)}</time></div>`).join('')}</div>`:
+      `<div class="arcane-page"><div class="arcane-page-top"><button data-act="back" data-to="${backTo}">‹ 통신구</button></div><h2>${text(heading,90)}</h2><div class="arcane-list">${detail}</div></div>`;
+    return `<div class="arcane-world"><div class="arcane-device"><div class="arcane-crown">✧　✦　✧　✦　✧</div><div class="arcane-orbit"><div class="arcane-orb"></div></div><div class="arcane-runemenu">${menus}</div><div class="arcane-base">✦　${text(data.owner||'개인 기록',55)}　✦</div></div><div class="arcane-records">${right}</div></div>`;
+  }
+
+  function pcAltView(data,theme) {
+    const classic=theme==='classic';
+    const fantasy=theme==='fantasy';
+    if(!classic&&!fantasy)return '';
+    const cfg=classic?{title:'개인 서고',sub:'',labels:{folders:'문서 서랍',emails:'서신 보관함',browser:'열람 장부',notes:'개인 필사본'},icons:{folders:'▥',emails:'✉',browser:'⌕',notes:'▤'}}:
+      {title:'마법 기록실',sub:'',labels:{folders:'마도서가',emails:'마력 서신',browser:'기억 수정',notes:'비전 연구'},icons:{folders:'✧',emails:'◇',browser:'◈',notes:'✦'}};
+    const kinds=['folders','emails','browser','notes'];
+    const nav=kinds.map(k=>`<button class="archive-menu" data-act="view" data-view="${k}"><span>${cfg.icons[k]}</span><b>${cfg.labels[k]}</b><small>${arr(data[k]).length}</small></button>`).join('');
+    const view=state.view;
+    const go=(to,label)=>`<button class="archive-back" data-act="back" data-to="${to}">‹ ${label}</button>`;
+    const folder=arr(data.folders)[state.subIndex]||{}, file=arr(folder.files)[state.fileIndex||0]||{};
+    const mail=arr(data.emails)[state.subIndex]||{},page=arr(data.browser)[state.subIndex]||{},note=arr(data.notes)[state.subIndex]||{};
+    const items=(records,render)=>records.map(render).join('')||'<p class="archive-empty">여기에 남은 기록이 없다.</p>';
+    let content='';
+    if(view==='home') content=`<div class="archive-welcome"><div class="archive-emblem">${classic?'書':'✧'}</div><h2>${cfg.title}</h2><small>${text(data.owner||'기록 보관인',90)}의 기록</small></div><div class="archive-home-menu">${nav}</div>`;
+    if(view==='folders') content=`${go('home','돌아가기')}<h2>${cfg.labels.folders}</h2><div class="archive-folder-grid">${items(arr(data.folders),(f,i)=>`<button class="archive-folder" data-act="pcitem" data-index="${i}"><span>${classic?'▤':'✧'}</span><b>${text(f.name,90)}</b><small>${arr(f.files).length}개 문서</small></button>`)}</div>`;
+    if(view==='files') content=`${go('folders','서랍 목록')}<h2>${text(folder.name,120)}</h2><div class="archive-entry-list">${items(arr(folder.files),(f,i)=>`<button class="archive-entry" data-act="pcitem" data-index="${i}"><span>▤</span><b>${text(f.title,120)}</b><time>${text(f.date,50)}</time></button>`)}</div>`;
+    if(view==='detail'&&state.subIndex2===3)content=`${go('files','문서 목록')}<div class="archive-document"><small>${text(file.date,90)}</small><h2>${text(file.title,160)}</h2><div class="archive-text">${textFull(file.body)}</div></div>`;
+    if(view==='emails')content=`${go('home','돌아가기')}<h2>${cfg.labels.emails}</h2><div class="archive-entry-list">${items(arr(data.emails),(m,i)=>`<button class="archive-entry" data-act="pcitem" data-index="${i}"><span>✉</span><b>${text(m.subject,120)}</b><small>${text(m.from,60)}</small></button>`)}</div>`;
+    if(view==='mail-detail')content=`${go('emails','서신 목록')}<div class="archive-document"><small>${text(mail.date,80)} · ${text(mail.from,80)} → ${text(mail.to,80)}</small><h2>${text(mail.subject,160)}</h2><div class="archive-text">${textFull(mail.body)}</div></div>`;
+    if(view==='browser')content=`${go('home','돌아가기')}<h2>${cfg.labels.browser}</h2><div class="archive-entry-list">${items(arr(data.browser),(b,i)=>`<button class="archive-entry" data-act="pcitem" data-index="${i}"><span>⌕</span><b>${text(b.title,125)}</b><small>${text(b.query||b.url,95)}</small></button>`)}</div>`;
+    if(view==='browser-page')content=`${go('browser','열람 장부')}<div class="archive-document"><small>${text(page.query||page.url,125)}</small><h2>${text(page.title,160)}</h2><div class="archive-text">${textFull(page.summary)}</div></div>`;
+    if(view==='notes')content=`${go('home','돌아가기')}<h2>${cfg.labels.notes}</h2><div class="archive-entry-list">${items(arr(data.notes),(n,i)=>`<button class="archive-entry" data-act="pcitem" data-index="${i}"><span>▤</span><b>${text(n.title,140)}</b></button>`)}</div>`;
+    if(view==='note-detail')content=`${go('notes','필사본 목록')}<div class="archive-document"><h2>${text(note.title,160)}</h2><div class="archive-text">${textFull(note.body)}</div></div>`;
+    if(classic)return `<div class="study-world"><div class="study-marquee">✥　${cfg.title}　✥ </div><div class="study-cabinet"><aside class="study-drawers"><div class="study-drawers-title">문서 수납장</div>${nav}</aside><div class="study-writing-desk"><div class="study-paper">${content}</div><div class="study-feather">✒</div></div></div></div>`;
+    return `<div class="wizard-world"><div class="wizard-arch"><div class="wizard-top-runes">✧ · ✦ · ✧ · ✦ · ✧</div><h2>${cfg.title}</h2></div><div class="wizard-desk"><aside class="wizard-shelves"><div class="wizard-focus-gem">◈</div>${nav}</aside><main class="wizard-manuscript"><div class="wizard-page-ornament">◇　✧　◇</div>${content}</main></div></div>`;
+  }
+
+  function boardAltView(d,theme) {
+    const sections=arr(d.sections),section=sections[state.subIndex]||{},posts=arr(section.posts),post=posts[state.subIndex2]||{};
+    const isForeign=theme==='foreign4'||theme==='foreign2';
+    const cfg={classic:{title:'저잣거리 소문판',hint:'',boards:'게시판',posts:'게시글'},fantasy:{title:'왕도 길드 게시판',hint:'',boards:'게시판',posts:'게시글'},foreign4:{title:'익명 이미지보드',hint:'',boards:'게시판 목록',posts:'스레드 목록'},foreign2:{title:'익명 텍스트 게시판',hint:'',boards:'게시판 목록',posts:'스레드 목록'}}[theme];
+    if(!cfg)return '';
+    const hot=sections.flatMap((g,gi)=>arr(g.posts).map((p,pi)=>({...p,gi,pi}))).sort((a,b)=>integer(b.views)-integer(a.views)).slice(0,7);
+    const home=sections.map((sec,i)=>`<button class="notice-board-link" data-act="section" data-index="${i}"><span class="notice-pin">${theme==='fantasy'?'✥':theme==='classic'?'●': '■'}</span><strong>${text(sec.name,95)}</strong><small>${arr(sec.posts).length}건</small></button>`).join('');
+    const homeHot=hot.map((p,i)=>`<button class="notice-teaser" data-act="board-jump" data-index="${p.gi}" data-post="${p.pi}"><small>${text(sections[p.gi].name,65)}</small><b>${text(p.title,165)}</b><span>${integer(p.views)}회 열람</span></button>`).join('');
+    const postRows=posts.map((p,i)=>`<button class="notice-post-row" data-act="post" data-index="${i}"><small>${theme==='foreign2'?i+1:theme==='foreign4'?'No.'+(i+1):'✦'}</small><b>${text(p.title,200)}</b><span>${text(p.author||'익명',60)} · ${integer(p.views)}회</span><em>${arr(p.comments).length}개 반응</em></button>`).join('');
+    const comments=arr(post.comments).map((c,i)=>`<div class="notice-comment"><small>${theme==='foreign2'?i+1+'.':theme==='foreign4'?'No.'+(i+1):'✎'}</small><b>${text(c.author||'익명',85)}</b><p>${textFull(c.text)}</p></div>`).join('')||'<p class="notice-muted">등록된 반응이 없다.</p>';
+    let core='';
+    if(state.view==='home')core=`<div class="notice-section-title">${cfg.boards}</div><div class="notice-board-links">${home}</div><div class="notice-section-title">${cfg.posts}</div><div class="notice-teasers">${homeHot||'<p class="notice-muted">아직 기록이 없다.</p>'}</div>`;
+    if(state.view==='posts')core=`<div class="notice-navigation"><button data-act="back" data-to="home">‹ 전체 게시판</button><b>${text(section.name,90)}</b></div><div class="notice-post-list">${postRows||'<p class="notice-muted">게시물이 없다.</p>'}</div>`;
+    if(state.view==='detail')core=`<div class="notice-navigation"><button data-act="back" data-to="posts">‹ ${text(section.name,90)}</button><button data-act="back" data-to="home">전체로</button></div><article class="notice-sheet"><header><h2>${text(post.title,230)}</h2><div class="notice-byline">${text(post.author||'익명',80)} · ${text(post.time,80)}　조회 ${integer(post.views)}　추천 ${integer(post.likes)}</div></header><div class="notice-body">${textFull(post.body)}</div><section class="notice-comments"><h3>반응 ${arr(post.comments).length}개</h3>${comments}</section></article>`;
+    if(theme==='foreign4')return `<div class="imageboard-site"><div class="imageboard-header"><b>${text(d.site||cfg.title,70)}</b><span>[ /all/ · /talk/ · /news/ · /random/ ]</span></div><div class="imageboard-title">${text(d.site||cfg.title,80)}</div><div class="imageboard-content">${core}</div></div>`;
+    if(theme==='foreign2')return `<div class="textboard-site"><div class="textboard-top">■ ${text(d.site||cfg.title,75)}　■</div><div class="textboard-nav">[ <button data-act="back" data-to="home">게시판 첫화면</button> ] [ 스레드 목록 ] [ 최근글 ]</div><div class="textboard-main">${core}</div></div>`;
+    return `<div class="notice-world ${theme}"><div class="notice-roof"><span>✥</span><h1>${text(d.site||cfg.title,95)}</h1></div><div class="notice-frame"><span class="notice-ropes">╱　╲</span><div class="notice-board-wood"><div class="notice-paper-area">${core}</div></div><span class="notice-seal-deco">${theme==='classic'?'告':'✥'}</span></div></div>`;
+  }
+
+  function newsAltView(d,theme) {
+    const articles=arr(d.articles),selected=articles[state.subIndex]||{},site=text(d.site|| (theme==='classic'?'도성 관보':'황실 신문'),85);
+    const classic=theme==='classic';
+    const cfg=classic?{tag:'官報',seal:'告',small:''}:{tag:'✧ IMPERIAL GAZETTE ✧',seal:'✥',small:''};
+    const cats=[...new Set(articles.map(a=>String(a.category||'종합')))].slice(0,10);
+    const head=`<header class="gazette-head"><div class="gazette-minor"><span>${text(articles[0]?.date||'발행일 미상',70)}</span></div><h1>${site}</h1><nav class="gazette-cats"><button data-act="news-category" data-category="전체">전체</button>${cats.map(c=>`<button data-act="news-category" data-category="${esc(c)}">${text(c,40)}</button>`).join('')}</nav></header>`;
+    const active=state.newsCategory||'전체';
+    const visible=active==='전체'?articles:articles.filter(a=>String(a.category||'종합')===active);
+    const hero=visible[0];
+    const front=`<div class="gazette-front">${hero?`<button class="gazette-lead" data-act="webitem" data-index="${articles.indexOf(hero)}"><span class="gazette-category">${text(hero.category||'주요 소식',65)}</span><h2>${text(hero.title,240)}</h2><p>${text(hero.lede,300)}</p><small>${text(hero.author,80)} · ${text(hero.date,60)}</small></button>`:''}<div class="gazette-columns">${visible.slice(1).map(a=>`<button class="gazette-brief" data-act="webitem" data-index="${articles.indexOf(a)}"><small>${text(a.category||'소식',55)} · ${text(a.date,55)}</small><h3>${text(a.title,180)}</h3><p>${text(a.lede,250)}</p></button>`).join('')||'<p>더 읽을 기사가 없습니다.</p>'}</div></div>`;
+    const detail=`<div class="gazette-detail"><button class="gazette-back" data-act="back" data-to="home">‹ 제1면으로</button><div class="gazette-article-meta">${text(selected.category||'종합',70)}　·　${text(selected.date,70)}　·　${text(selected.author,75)}</div><h2>${text(selected.title,260)}</h2><p class="gazette-lede">${textFull(selected.lede)}</p><div class="gazette-article-body">${textFull(selected.body)}</div><section class="gazette-readers"><h3>${classic?'독자들의 풍문':'독자들의 의견'}</h3>${arr(selected.comments).map(c=>`<p><b>${text(c.author||'독자',70)}</b>　${textFull(c.text)}</p>`).join('')||'<p>남겨진 반응이 없습니다.</p>'}</section></div>`;
+    return `<div class="gazette-paper ${theme}"><div class="gazette-inner">${head}${state.view==='detail'?detail:front}<footer class="gazette-end"><span>${cfg.seal}</span>　발행처 · ${site}　<span>${cfg.seal}</span></footer></div></div>`;
+  }
+
+  function wikiAltView(d,theme) {
+    const docs=arr(d.docs),selected=docs[state.subIndex]||docs[0]||{},detail=state.view==='detail';
+    const classic=theme==='classic';
+    const cfg=classic?{title:'고전 백과',small:'',logo:'典',word:'항목'}:{title:'판타지 백과',small:'',logo:'✧',word:'기록'};
+    const nav=docs.map((doc,i)=>`<button class="codex-index-row ${detail&&state.subIndex===i?'active':''}" data-act="webitem" data-index="${i}"><span>${classic?'▤':'✦'}</span><b>${text(doc.title,85)}</b></button>`).join('');
+    const tabs=`<div class="codex-tabs"><button class="${state.wikiTab==='article'?'active':''}" data-act="wiki-tab" data-tab="article">본문</button><button class="${state.wikiTab==='discussion'?'active':''}" data-act="wiki-tab" data-tab="discussion">기록자 토론</button></div>`;
+    const contents=arr(selected.sections).map((s,i)=>`<section class="codex-section"><h3>${i+1}. ${text(s.heading,140)}</h3><div class="codex-paragraph">${textFull(s.body)}</div></section>`).join('');
+    const talks=arr(selected.discussion).map(c=>`<div class="codex-talk"><b>${text(c.author||'기록자',75)}</b><p>${textFull(c.text)}</p></div>`).join('')||'<p>토론 기록이 없습니다.</p>';
+    const entries=docs.map((doc,i)=>`<button class="codex-entry" data-act="webitem" data-index="${i}"><strong>${text(doc.title,135)}</strong><small>${text(doc.summary,210)}</small></button>`).join('');
+    const content=detail?`<div class="codex-article"><button class="codex-return" data-act="back" data-to="home">‹ 목차로</button><h2>${text(selected.title,180)}</h2>${tabs}<p class="codex-summary">${textFull(selected.summary)}</p>${state.wikiTab==='article'?contents:talks}</div>`:`<div class="codex-landing"><div class="codex-initial">${cfg.logo}</div><h2>기록 목록</h2><div class="codex-entries">${entries}</div></div>`;
+    return `<div class="codex-world ${theme}"><div class="codex-cover"><div class="codex-book"><div class="codex-left"><header class="codex-brand"><span>${cfg.logo}</span><strong>${text(d.site||cfg.title,90)}</strong></header><div class="codex-nav-title">▤　색인 목차</div><nav class="codex-index"><button class="codex-index-row" data-act="back" data-to="home">⌂　대문</button>${nav}</nav><div class="codex-ornament">${classic?'❀　❀　❀':'✧　◇　✧'}</div></div><div class="codex-gutter"></div><main class="codex-right">${content}</main></div></div></div>`;
+  }
+
+  function xAltView(d,theme) {
+    const posts=arr(d.posts),trends=arr(d.trends),classic=theme==='classic';
+    const filtered=posts.map((p,i)=>({...p,idx:i})).filter(p=>!state.xQuery||[p.author,p.handle,p.text].join(' ').toLocaleLowerCase('ko-KR').includes(state.xQuery.toLocaleLowerCase('ko-KR')));
+    const notes=filtered.map((p,n)=>`<article class="${classic?'wall-scrap':'aether-post'}"><div class="micro-post-head"><b>${text(p.author,85)}</b><small>${text(p.handle,70)} · ${text(p.time,45)}</small></div><div class="micro-post-text">${textFull(p.text)}</div><div class="micro-post-actions"><span>${classic?'퍼진 소문':'↺'} ${integer(p.reposts)}</span><span>♡ ${integer(p.likes)}</span><button data-act="x-toggle" data-index="${p.idx}">반응 ${arr(p.replies).length} ${state.expandedX.has(p.idx)?'접기':'보기'}</button></div>${state.expandedX.has(p.idx)?`<div class="micro-post-replies">${arr(p.replies).map(reply=>`<div><b>${text(reply.author,75)}</b><small> ${text(reply.handle,50)}</small><p>${textFull(reply.text)}</p></div>`).join('')||'<p>남겨진 답글 없음</p>'}</div>`:''}</article>`).join('')||'<p>보여줄 기록이 없습니다.</p>';
+    const trend=trends.map(t=>`<button data-act="x-trend" data-query="${esc(t.tag)}"><b>${text(t.tag,80)}</b><small>${text(t.count,50)}개 이야기</small></button>`).join('');
+    if(classic)return `<div class="whisper-wall"><div class="whisper-roof"><span>●</span><h2>${text(d.site||'풍문',85)}</h2><span>●</span></div><div class="whisper-inner"><section class="whisper-notes">${notes}</section><aside class="whisper-side"><h3>지금 돌고 있는 풍문</h3>${trend}</aside></div><div class="whisper-stones">▧　▦　▧　▦　▧　▦</div></div>`;
+    return `<div class="aether-feed"><div class="aether-lines"></div><header><span>✧</span><div><h2>${text(d.site||'마법 소식망',85)}</h2></div><span>✦</span></header><div class="aether-layout"><main>${notes}</main><aside><div class="aether-crystal">✦</div><h3>왕국의 화제</h3>${trend}</aside></div></div>`;
+  }
+
   function viewerPage() {
     // Tablet: choose between the reader and generation/archive controls without
     // forcing the reader to sit below several screens of settings.
     const empty=!currentRecord();
     const tabletControls=state.tabletPane==='controls'||empty;
-    return `<div class="pane-title"><div><h3>${typeOf(state.type).icon} ${typeOf(state.type).label}</h3></div></div>
+    return `<div class="pane-title"><div class="pane-title-row"><h3>${typeOf(state.type).icon} ${typeOf(state.type).label}</h3>${themePicker(state.type)}</div></div>
       <div class="tablet-view-switch" role="group" aria-label="태블릿 화면 전환"><button class="button slim ${!tabletControls?'primary':''}" data-act="tablet-pane" data-pane="viewer" ${empty?'disabled':''} aria-pressed="${!tabletControls}">▣ 열람 화면</button><button class="button slim ${tabletControls?'primary':''}" data-act="tablet-pane" data-pane="controls" aria-pressed="${tabletControls}">⚙ 생성·보관 기록</button></div>
       <div class="viewer-layout ${state.focused?'focused':''} ${tabletControls?'tablet-controls':'tablet-reader'} ${empty?'no-record':''}"><div class="controls stack">${characterPicker()}${generatorControls()}${archiveList()}</div><div class="stage"><div class="focus-bar"><button class="button slim ghost" data-act="focus">${state.focused?'↙ 생성 설정 표시':'⛶ 열람 화면 크게'}</button></div>${preview()}</div></div>`;
   }
@@ -1269,7 +2223,7 @@
   const normalText = s => `<div class="paragraph">${textFull(s)}</div>`;
   const titleline = (a,b='') => `<div class="preview-title"><b>${text(a,70)}</b>${b}</div>`;
   const back = (to='home', label='‹ 뒤로') => `<button class="web-btn" data-act="back" data-to="${to}">${label}</button>`;
-  function phoneView(data) {
+  function phoneView(data, theme=currentTheme('phone')) {
     const apps = [
       ['messages','✉','메시지','message'], ['calls','☎','전화','calls'],
       ['searches','◎','브라우저','browser'], ['notes','▤','메모','notes'],
@@ -1302,15 +2256,20 @@
       if(!content.trim()) content='<div class="ios-empty">저장된 기록이 없어.</div>';
       inside=`<div class="ios-appscreen"><div class="ios-navbar"><button data-act="back" data-to="${goBack}" class="ios-back">‹ <span>뒤로</span></button><b>${text(app==='thread'?arr(data.messages)[state.subIndex]?.person:app==='phone-detail'?'상세 기록':heading,75)}</b><span class="ios-navend">•••</span></div><div class="ios-scroll">${content}</div></div>`;
     }
-    return `<div class="iphone"><div class="phone-screen"><div class="ios-status"><span>${time}</span><div class="ios-island"></div><span class="ios-signal">▂▄▆　◉　▰</span></div>${inside}${nav}</div></div>`;
+    const modern = `<div class="iphone"><div class="phone-screen"><div class="ios-status"><span>${time}</span><div class="ios-island"></div><span class="ios-signal">▂▄▆　◉　▰</span></div>${inside}${nav}</div></div>`;
+    if(theme!=='modern') return phoneAltView(data, theme);
+    return modern;
   }
-  function diaryView(data) {
+  function diaryView(data, theme=currentTheme('diary')) {
     // 생성 기록 한 건에는 하루치 일기 한 편만 저장한다.
     // 여러 날의 일기는 왼쪽 '보관된 일기장 기록'에서 기록별로 선택한다.
     const chosen=arr(data.entries)[0]||{};
-    return `<div class="diary-book"><div class="diary-cover"><div class="diary-deco">✿　✾　✿</div><h2>${text(data.owner||'누군가',70)}의 일기장</h2><span>비공개 · 개인 기록</span></div><div class="diary-layout"><main class="diary-sheet"><span class="diary-sheet-date">${text(chosen.date||'',65)}${chosen.weather?' · '+text(chosen.weather,40):''}</span><h3>${text(chosen.title||'그날의 기록',170)}</h3><div class="diary-mood">그날의 기분　${text(chosen.mood||'평범함',65)}</div><div class="diary-handwriting">${textFull(chosen.body||'')}</div><div class="diary-sign">${text(data.owner||'',60)}</div></main></div></div>`;
+    if(theme==='modern-note') return `<div class="diary-alt modern-note"><div class="diary-alt-head"><b>${text(data.owner||'누군가',70)}</b></div><div class="diary-alt-paper"><div class="diary-alt-meta"><span>${text(chosen.date||'',65)}</span><span>${text(chosen.weather||'',40)}</span><span>${text(chosen.mood||'평범함',60)}</span></div><h2>${text(chosen.title||'오늘의 기록',180)}</h2><div class="diary-alt-body">${textFull(chosen.body||'')}</div><div class="diary-sign">${text(data.owner||'',60)}</div></div></div>`;
+    if(theme==='classic-paper') return `<div class="diary-alt classic-paper"><div class="diary-alt-head"><b>${text(data.owner||'누군가',70)}</b></div><div class="diary-alt-paper"><div class="diary-alt-meta"><span>${text(chosen.date||'',65)}</span><span>${text(chosen.weather||'',40)}</span></div><h2>${text(chosen.title||'그날의 기록',180)}</h2><div class="diary-alt-body">${textFull(chosen.body||'')}</div><div class="diary-sign">${text(data.owner||'',60)}</div></div></div>`;
+    if(theme==='fantasy-parchment') return `<div class="diary-alt fantasy-parchment"><div class="diary-alt-head"><b>${text(data.owner||'누군가',70)}</b></div><div class="diary-alt-paper"><div class="diary-alt-meta"><span>${text(chosen.date||'',65)}</span><span>${text(chosen.weather||'',40)}</span><span>${text(chosen.mood||'평범함',60)}</span></div><h2>${text(chosen.title||'그날의 기록',180)}</h2><div class="diary-alt-body">${textFull(chosen.body||'')}</div><div class="diary-sign">${text(data.owner||'',60)}</div></div></div>`;
+    return `<div class="diary-book"><div class="diary-cover"><div class="diary-deco">✿　✾　✿</div><h2>${text(data.owner||'누군가',70)}의 일기장</h2></div><div class="diary-layout"><main class="diary-sheet"><span class="diary-sheet-date">${text(chosen.date||'',65)}${chosen.weather?' · '+text(chosen.weather,40):''}</span><h3>${text(chosen.title||'그날의 기록',170)}</h3><div class="diary-mood">그날의 기분　${text(chosen.mood||'평범함',65)}</div><div class="diary-handwriting">${textFull(chosen.body||'')}</div><div class="diary-sign">${text(data.owner||'',60)}</div></main></div></div>`;
   }
-  function pcView(data) {
+  function pcView(data, theme=currentTheme('pc')) {
     const apps=[['folders','📁','파일 탐색기'],['emails','✉','메일'],['browser','◉','인터넷'],['notes','▤','나의 문서']];
     const view=state.view, file=arr(data.folders)[state.subIndex], mail=arr(data.emails)[state.subIndex]||{};
     const browsing=arr(data.browser),page=browsing[state.subIndex]||{}, documentItem=arr(data.notes)[state.subIndex]||{};
@@ -1339,11 +2298,14 @@
       content=view==='notes'?`<div class="pc-notes"><div class="pc-notes-head"><span>▤</span><div><h2>나의 문서</h2><small>이 컴퓨터에 저장된 개인 문서</small></div></div><div class="pc-file-list pc-notes-list">${arr(data.notes).map((n,i)=>`<button data-act="pcitem" data-index="${i}"><span>▤</span><b>${text(n.title,140)}</b><small>문서</small></button>`).join('')}</div></div>`:
       `<div class="pc-file-doc">${cmd('notes')}<h2>${text(documentItem.title,200)}</h2>${normalText(documentItem.body,20000)}</div>`;
     }
-    return `<div class="monitor"><div class="desktop"><div class="desktop-icons">${apps.map(([id,icon,name])=>`<button class="desktop-icon" data-act="view" data-view="${id}"><i>${icon}</i>${name}</button>`).join('')}</div>${open?`<div class="desktop-window pc-app-window"><div class="desktop-window-title pc-window-title"><span class="pc-win-icon">${winName==='메일'?'✉':winName==='인터넷 브라우저'?'◉':'▤'}</span><b>${winName}</b><div class="pc-window-buttons"><span>─</span><span>□</span><button data-act="back" data-to="home" aria-label="창 닫기">✕</button></div></div><div class="pc-window-content">${content}</div></div>`:''}</div><div class="desktop-taskbar"><button data-act="back" data-to="home">▦</button><div>${apps.map(([id,icon,name])=>`<button data-act="view" data-view="${id}" title="${name}">${icon}</button>`).join('')}</div><span>${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}</span></div></div><div class="monitor-stand"></div>`;
+    const modern = `<div class="monitor"><div class="desktop"><div class="desktop-icons">${apps.map(([id,icon,name])=>`<button class="desktop-icon" data-act="view" data-view="${id}"><i>${icon}</i>${name}</button>`).join('')}</div>${open?`<div class="desktop-window pc-app-window"><div class="desktop-window-title pc-window-title"><span class="pc-win-icon">${winName==='메일'?'✉':winName==='인터넷 브라우저'?'◉':'▤'}</span><b>${winName}</b><div class="pc-window-buttons"><span>─</span><span>□</span><button data-act="back" data-to="home" aria-label="창 닫기">✕</button></div></div><div class="pc-window-content">${content}</div></div>`:''}</div><div class="desktop-taskbar"><button data-act="back" data-to="home">▦</button><div>${apps.map(([id,icon,name])=>`<button data-act="view" data-view="${id}" title="${name}">${icon}</button>`).join('')}</div><span>${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}</span></div></div><div class="monitor-stand"></div>`;
+    if(theme!=='modern') return pcAltView(data, theme);
+    return modern;
   }
   // Fictional community with gallery, dense post list and reader, without any real site's identity.
-  function boardView(d) {
+  function boardView(d, theme=currentTheme('board')) {
     const sections=arr(d.sections), section=sections[state.subIndex]||{}, posts=arr(section.posts), post=posts[state.subIndex2]||{};
+    if(theme!=='modern') return boardAltView(d, theme);
     const links=sections.slice(0,9).map((g,i)=>`<button data-act="section" data-index="${i}" class="fb-shortcut ${state.view!=='home'&&state.subIndex===i?'active':''}">${text(g.name,70)} <small>${arr(g.posts).length}</small></button>`).join('');
     const nav=`<div class="fb-identity"><div class="fb-logo"><span class="fb-logo-blue">디씨</span><span class="fb-logo-dark">인사이더</span><small>dc insider</small></div><div class="fb-fakesearch"><span>⌕</span> 통합검색 · 갤러리 / 게시글</div></div><div class="fb-menubar"><span>갤러리</span><span>마이너갤러리</span><span>미니갤러리</span><span>실시간 베스트</span><span>힛갤</span></div>`;
     const side=`<aside class="fb-side"><div class="fb-side-title">▤ 갤러리 바로가기</div>${links||'<p>게시판이 없어.</p>'}</aside>`;
@@ -1359,8 +2321,9 @@
     return `<div class="fboard">${nav}<div class="fb-layout"><div class="fb-main">${content}</div>${side}</div></div>`;
   }
   // Fictional news portal: front page, categories, article reading and reader comments.
-  function newsView(d) {
+  function newsView(d, theme=currentTheme('news')) {
     const articles=arr(d.articles), p=articles[state.subIndex]||{}, site=String(d.site||'새벽일보');
+    if(theme!=='modern') return newsAltView(d, theme);
     const cats=[...new Set(articles.map(x=>String(x.category||'종합')))].slice(0,12);
     const active=state.newsCategory||'전체';
     const visible=active==='전체'?articles:articles.filter(x=>String(x.category||'종합')===active);
@@ -1375,13 +2338,13 @@
     }
     return `<div class="newsportal">${mast}<div class="np-grid"><main class="np-main">${main}</main>${sidebar}</div></div>`;
   }
-  function webPreview(kind, d) {
-    if(kind==='board')return boardView(d);
-    if(kind==='news')return newsView(d);
-    if(kind==='wiki')return wikiView(d);
+  function webPreview(kind, d, theme=currentTheme(kind)) {
+    if(kind==='board')return boardView(d, theme);
+    if(kind==='news')return newsView(d, theme);
+    if(kind==='wiki')return wikiView(d, theme);
     return '';
   }
-  function wikiView(d) {
+  function wikiView(d, theme=currentTheme('wiki')) {
     const docs=arr(d.docs), site=d.site||'모아위키';
     const selected=docs[state.subIndex]||docs[0]||{};
     const detail=state.view==='detail';
@@ -1392,9 +2355,10 @@
       <div class="wiki-tabs"><button data-act="wiki-tab" data-tab="article" class="${tab==='article'?'selected':''}">문서</button><button data-act="wiki-tab" data-tab="discussion" class="${tab==='discussion'?'selected':''}">토론 <small>${arr(selected.discussion).length}</small></button></div>
       ${tab==='article'?`<div class="wiki-article-content"><p class="wiki-summary">${textFull(selected.summary||'')}</p><div class="wiki-toc"><b>목차</b>${arr(selected.sections).map((section,i)=>`<button data-act="wiki-jump" data-index="${i}">${i+1}. ${text(section.heading,90)}</button>`).join('')}</div>${arr(selected.sections).map((section,i)=>`<section class="wiki-section" data-wiki-section="${i}"><h2><span>${i+1}.</span> ${text(section.heading,180)}</h2>${normalText(section.body,16000)}</section>`).join('')}</div>`:`<div class="wiki-discussion"><h2>문서 토론</h2><p>이 문서에 관해 기록된 편집자들의 토론이야.</p>${arr(selected.discussion).map((c,i)=>`<div class="wiki-talk"><div><b>#${i+1} ${text(c.author||'익명',80)}</b><small>편집자</small></div><p>${text(c.text,2500)}</p></div>`).join('')||'<p>토론 기록이 없어.</p>'}</div>`}</div>`
       :`<div class="wiki-landing"><h2>최근 문서 <small>${results.length}개</small></h2>${results.map((doc)=>{const i=docs.indexOf(doc);return `<button data-act="webitem" data-index="${i}" class="wiki-document-row"><span class="wiki-document-icon">▤</span><span><b>${text(doc.title,130)}</b><small>${text(doc.summary,185)}</small></span><span>›</span></button>`}).join('')||'<p>검색 결과가 없어.</p>'}</div>`;
+    if(theme!=='modern') return wikiAltView(d, theme);
     return `<div class="wiki-site"><div class="wiki-topbar"><div class="wiki-brand"><b>▥</b><span>${text(site,65)}</span></div><div class="wiki-search"><input data-field="wikiSearch" value="${esc(state.wikiQuery)}" placeholder="문서 제목 검색"><button data-act="wiki-search">⌕</button></div><button class="wiki-toplink" data-act="back" data-to="home">대문</button></div><div class="wiki-layout"><aside class="wiki-sidebar"><b>탐색</b><button data-act="back" data-to="home">⌂　대문</button><div class="wiki-sideline"></div><b>최근 문서</b>${sidebar}</aside><main class="wiki-content">${docText}</main></div></div>`;
   }
-  function xView(d) {
+  function xView(d, theme=currentTheme('x')) {
     const posts=arr(d.posts),trends=arr(d.trends),filter=state.xFilter;
     const term=state.xQuery.toLocaleLowerCase('ko-KR').trim();
     const match=p=>[p.author,p.handle,p.text].join(' ').toLocaleLowerCase('ko-KR').includes(term);
@@ -1406,9 +2370,29 @@
       return `<article class="x-post" data-x-index="${i}"><div class="x-avatar-wrap">${avatar(p.author)}</div><div class="x-post-body"><div class="x-post-head"><b>${text(p.author,90)}</b><span>@${text(p.handle,55)} · ${text(p.time,50)}</span><span class="x-more">···</span></div><p>${textFull(p.text)}</p><div class="x-actions"><button class="x-expand-replies" data-act="x-toggle" data-index="${i}" aria-expanded="${open}" title="답글 ${open?'접기':'펼치기'}"><span>◌</span> ${replies.length}개 답글　${open?'▴':'▾'}</button><span>⇄ ${integer(p.reposts)}</span><span>♡ ${integer(p.likes)}</span><span>⇧</span></div>${open?`<div class="x-replies"><div class="x-replies-head">답글 ${replies.length}개 <button data-act="x-toggle" data-index="${i}">접기　⌃</button></div>${replies.map(r=>`<div class="x-reply">${avatar(r.author)}<div><b>${text(r.author,75)}</b> <small>@${text(r.handle,60)}</small><p>${text(r.text,2000)}</p></div></div>`).join('')||'<p class="x-no-reply">아직 답글이 없어.</p>'}</div>`:''}</div></article>`;
     };
     const center=`<div class="x-feed-head"><div><b>${filter==='popular'?'인기 글':'홈'}</b></div></div><div class="x-feed-tabs"><button data-act="x-filter" data-filter="all" class="${filter==='all'?'active':''}">추천</button><button data-act="x-filter" data-filter="latest" class="${filter==='latest'?'active':''}">최신</button><button data-act="x-filter" data-filter="popular" class="${filter==='popular'?'active':''}">인기</button></div>${filtered.map(p=>post(p,posts.indexOf(p))).join('')||'<div class="x-noresults">일치하는 글이 없어.</div>'}`;
+    if(theme!=='modern') return xAltView(d, theme);
     return `<div class="x-site"><aside class="x-nav"><div class="x-symbol" aria-label="𝕏+"><i>𝕏<span>+</span></i></div><button data-act="back" data-to="home">⌂ <span>홈</span></button><button data-act="x-filter" data-filter="popular">⌕ <span>탐색</span></button><button data-act="x-filter" data-filter="latest">◷ <span>최신</span></button></aside><main class="x-timeline">${center}</main><aside class="x-right"><div class="x-searchbox">⌕ <input data-field="xSearch" value="${esc(state.xQuery)}" placeholder="글·계정 검색" /></div><div class="x-trending"><b>지금 화제</b>${trends.map((x,i)=>`<button data-act="x-trend" data-query="${esc(x.tag)}"><small>${i+1} · 화제</small><strong>${text(x.tag,90)}</strong><small>${text(x.count,30)} 게시물</small></button>`).join('')}</div></aside></div>`;
   }
   function comments(x) { return `<div class="web-comments"><b>댓글 · ${arr(x).length}</b>${arr(x).map(c=>`<div class="web-comment"><b>${text(c.author||c.by||'',60)}</b> ${text(c.text,1300)}</div>`).join('')}</div>`; }
+
+  function groupchatView(d, theme=currentTheme('groupchat'), person=state.settings.selectedPerson) {
+    const rooms=arr(d.rooms), index=Math.max(0,Math.min(state.subIndex,rooms.length-1)), room=rooms[index]||{};
+    const isKakao=theme==='kakao', isClassic=theme==='classic', isFantasy=theme==='fantasy';
+    const className=theme==='kakao'?'group-kakao':theme==='neutral'?'group-neutral':theme==='classic'?'group-classic':'group-fantasy';
+    const list=rooms.map((r,i)=>`<button class="group-room ${i===index&&state.view==='chat'?'active':''}" data-act="group-room" data-index="${i}"><span class="group-room-avatar">${isFantasy?'✧':isClassic?'✉':'◉'}</span><span class="group-room-copy"><b>${text(r.title||'단체 채팅',100)}</b><small>${arr(r.participants).map(x=>String(x||'')).slice(0,5).map(x=>text(x,25)).join(', ')}</small></span><span class="group-count">${arr(r.messages).length}</span></button>`).join('');
+    const messages=arr(room.messages).map((m,i)=>{
+      const sender=String(m.sender||'');
+      const previousSender=i>0?String(room.messages[i-1]?.sender||''):'';
+      const same=sender===previousSender;
+      const isMine=sender.trim().replace(/\s+/g,'').toLocaleLowerCase('ko-KR')===String(person||'').trim().replace(/\s+/g,'').toLocaleLowerCase('ko-KR');
+      return `<div class="group-message ${same?'compact':''} ${isMine?'mine':''}"><div class="group-avatar">${text(sender.slice(0,1)||'?',4)}</div><div class="group-message-main">${!same?`<b class="group-sender">${text(sender,70)}</b>`:''}<div class="group-message-line"><div class="group-message-text">${textFull(m.text)}</div><time>${text(m.time,35)}</time></div></div></div>`;
+    }).join('');
+    const roomHeader=`<header class="group-chat-head"><button class="group-back" data-act="back" data-to="home">‹</button><b>${text(room.title||'단체 채팅',110)}</b><small>${arr(room.participants).length}명</small></header>`;
+    const inner=state.view==='chat' ? `${roomHeader}<div class="group-chat-members">${arr(room.participants).map(p=>`<span>${text(p,65)}</span>`).join('')}</div><div class="group-messages">${messages||'<p class="group-empty">메시지가 없어.</p>'}</div>`:
+      `<div class="group-room-list-head"><b>${text(d.site||'단체 채팅',80)}</b></div><div class="group-rooms">${list||'<p class="group-empty">생성된 대화방이 없어.</p>'}</div>`;
+    return `<div class="groupchat ${className}"><div class="groupchat-case"><div class="groupchat-topline">${isKakao?'● ● ●':isFantasy?'✧ ◈ ✧':isClassic?'❀':'●'}</div>${inner}<div class="groupchat-bottomline"></div></div></div>`;
+  }
+
   function liveView(d) {
     return `<div class="web" style="background:#10182a"><div class="web-body"><div class="live-tv"><small>● LIVE</small><p><strong>${text(d.show||'실시간톡',130)}</strong></p><small>${text(d.episode,170)}</small></div><div class="live-lines">${arr(d.chat).map(x=>`<div class="live-line ${integer(x.donation)>0?'gift':''}"><small>${text(x.time,18)}</small><b>${text(x.user,65)}</b> ${textFull(x.text)}${integer(x.donation)>0?` <span style="color:#f2cb80">₩${integer(x.donation).toLocaleString()}</span>`:''}</div>`).join('')}</div>${arr(d.highlights).length?`<div class="live-highlights"><b>명장면</b>${arr(d.highlights).map(x=>`<div class="card" style="margin:9px 0"><b>${text(x.title,160)}</b>${normalText(x.text,1700)}</div>`).join('')}</div>`:''}</div></div>`;
   }
@@ -1416,7 +2400,8 @@
     const r=currentRecord();
     if (!r) return `<div class="preview"><div class="empty"><div style="font-size:34px">${typeOf(state.type).icon}</div><b>아직 열람할 기록이 없어</b><p>RP 범위와 캐릭터를 고른 다음 생성하면<br>여기에서 실제 기기처럼 눌러서 구경할 수 있어.</p></div></div>`;
     const data=r.payload || {};
-    const view=state.type==='phone'?phoneView(data):state.type==='pc'?pcView(data):state.type==='diary'?diaryView(data):state.type==='live'?liveView(data):state.type==='x'?xView(data):webPreview(state.type,data);
+    const theme=currentTheme(state.type);
+    const view=state.type==='phone'?phoneView(data,theme):state.type==='pc'?pcView(data,theme):state.type==='diary'?diaryView(data,theme):state.type==='live'?liveView(data):state.type==='groupchat'?groupchatView(data,theme,r.person):state.type==='x'?xView(data,theme):webPreview(state.type,data,theme);
     return `<div class="preview">${titleline(`${r.person?r.person+' · ':''}${typeOf(r.kind).label}`,`<span class="pill">${text(r.rangeLabel,70)}${usageSummary(r)}</span>`)}${view}</div>`;
   }
   function promptBlock(group, key, title, placeholder) {
@@ -1434,7 +2419,14 @@
      ${promptBlock('common','character','2. 캐릭터 정보','캐릭터 성격, 역할, 말투, 직업, 주요 프로필 등을 붙여넣기')}
      ${promptBlock('common','relationship','3. 유저와 캐릭터의 관계','현재 관계, 감정, 과거 사건, 호칭 및 관계의 진행 상황')}
      <div class="card"><h4>4. 콘텐츠별 개별 프롬프트</h4><div class="chips">${TYPES.map(t=>`<button data-act="settings-kind" data-kind="${t.key}" class="chip ${state.type===t.key?'active':''}">${t.icon} ${t.label}</button>`).join('')}</div></div>
+     ${state.type==='groupchat'?`<div class="card stack"><h4>단톡 기본 생성 프롬프트</h4><textarea data-field="groupchatBasePrompt" rows="5" aria-label="단톡 기본 생성 프롬프트">${text(s.groupchatBasePrompt,300000)}</textarea><p class="subtle">이 내용은 단톡 생성 요청에 기본 지침으로 포함돼. 비워 두면 기본 문구로 복구돼. 이 아래의 개별 추가 지시와 중복 전송하지 않아.</p></div>`:''}
      ${promptBlock('perKind',state.type,`${typeOf(state.type).icon} ${typeOf(state.type).label} 전용 추가 지시`,'이 콘텐츠에서 보고 싶은 내용의 분위기, 특징, 분량, 특정 기록 등에 관한 추가 지시')}
+     <div class="card stack preset-box"><h4>📌 ${typeOf(state.type).label} 프롬프트 프리셋</h4>
+       <div class="preset-grid"><label class="field"><span>저장된 프리셋</span><select data-field="presetSelect"><option value="">선택</option>${presetsOf(state.type).map(p=>`<option value="${esc(p.id)}" ${state.presetSelection===p.id?'selected':''}>${text(p.name,90)}</option>`).join('')}</select></label>
+       <label class="field"><span>프리셋 이름</span><input type="text" data-field="presetName" maxlength="70" value="${esc(state.presetName)}" placeholder="이름 입력 후 저장"></label></div>
+       <div class="row"><button class="button slim" data-act="preset-load" ${!selectedPreset(state.type)?'disabled':''}>불러오기</button><button class="button slim primary" data-act="preset-save">현재 지시 저장</button><button class="button slim ghost" data-act="preset-delete" ${!selectedPreset(state.type)?'disabled':''}>프리셋 삭제</button></div>
+       <p class="subtle">프리셋은 모든 RP방에서 공통 사용. 단톡 프리셋에는 기본 생성 프롬프트도 함께 저장돼. 다른 방의 설정은 변경하지 않아.</p>
+     </div>
      <div class="row"><button data-act="save" class="button primary">설정 저장</button><span class="subtle">텍스트 입력은 자동 저장되며, 저장 버튼으로 즉시 확정 가능.</span></div>
     </div>`;
   }
@@ -1540,6 +2532,11 @@
     } else if(kind==='wiki'){
       filter(payload,'docs',authored);
       for(const doc of arr(payload.docs))filter(doc,'discussion',authored);
+    } else if(kind==='groupchat'){
+      for(const room of arr(payload.rooms)){
+        filter(room,'messages',m=>matches(m?.sender)||matches(m?.author)||matches(m?.user));
+        if(Array.isArray(room.participants))room.participants=room.participants.filter(p=>!matches(p));
+      }
     } else if(kind==='live'){
       filter(payload,'chat',authored);
     } else if(kind==='x'){
@@ -1622,7 +2619,7 @@
     try {
       if (act==='close') {state.open=false;state.helpOpen=false;render();return;}
       if (act==='toggle-help') {state.helpOpen=!state.helpOpen;render();return;}
-      if (act==='kind'||act==='settings-kind') {state.focused=false;state.tabletPane='viewer';state.quote=null;state.boardQuery=''; state.wikiQuery=''; state.wikiTab='article';state.xQuery='';state.xFilter='all';state.expandedX.clear();state.newsCategory='전체';state.type=btn.dataset.kind;state.view='home';state.selectedRecord='';state.subIndex=0;state.settings.lastTab=state.type;if(act==='kind')state.tab='viewer';await saveSettings();render();return; }
+      if (act==='kind'||act==='settings-kind') {state.focused=false;state.tabletPane='viewer';state.quote=null;state.boardQuery=''; state.wikiQuery=''; state.wikiTab='article';state.xQuery='';state.xFilter='all';state.expandedX.clear();state.newsCategory='전체';state.type=btn.dataset.kind;state.view='home';state.selectedRecord='';state.subIndex=0;state.settings.lastTab=state.type;state.presetSelection='';state.presetName='';if(act==='kind')state.tab='viewer';await saveSettings();render();return; }
       if (act==='tab') {state.tab=btn.dataset.tab;state.globalDeleteConfirm=null;render();return;}
       if (act==='person') {state.quote=null;state.settings.selectedPerson=btn.dataset.person;state.view='home';state.selectedRecord='';await saveSettings();render();return;}
       if (act==='add-person') {const el=panel.querySelector('[data-field=addPerson]');const n=String(el?.value||'').trim().slice(0,60);if(!n)return flash('이름을 입력해 줘.');state.settings.characters=[...new Set([...state.settings.characters,n])];state.settings.selectedPerson=n;await saveSettings();render();return;}
@@ -1645,6 +2642,7 @@
         else if(kind==='notes'){state.subIndex=idx;state.view='note-detail';}
         render();return;
       }
+      if(act==='group-room'){state.subIndex=integer(btn.dataset.index);state.view='chat';render();return;}
       if(act==='mail-folder'){state.pcMailFolder=btn.dataset.folder||'inbox';state.view='emails';render();return;}
       if(act==='diary-entry'){state.subIndex=integer(btn.dataset.index);state.view='entry';render();return;}
       if (act==='section') {state.boardQuery='';state.subIndex=integer(btn.dataset.index);state.view='posts';render();return;}
@@ -1660,6 +2658,38 @@
       if (act==='board-jump') {state.subIndex=integer(btn.dataset.index);state.subIndex2=integer(btn.dataset.post);state.view='detail';render();return;}
       if (act==='x-filter') {state.xFilter=btn.dataset.filter||'all';state.view='home';render();return;}
       if (act==='x-trend') {state.xQuery=btn.dataset.query||'';state.view='home';render();return;}
+      if(act==='preset-save') {
+        const kind=state.type;
+        const name=String(state.presetName||'').trim().slice(0,70);
+        const value=String(state.settings.perKind[kind]?.value||'').trim();
+        const basePrompt=kind==='groupchat' ? String(state.settings.groupchatBasePrompt||GROUPCHAT_BASE_PROMPT).trim() : '';
+        if(!name)return flash('프리셋 이름을 입력해 줘.');
+        if(!value && !basePrompt)return flash('먼저 프롬프트에 내용을 입력해 줘.');
+        const exists=presetsOf(kind).find(p=>p.name===name);
+        if(exists && !confirm(`프리셋 "${name}"을 덮어쓸까?`))return;
+        const item=exists||{id:uid(),kind,name,value};
+        item.value=value;
+        if(kind==='groupchat')item.basePrompt=basePrompt;
+        if(!exists)state.presets.push(item);
+        state.presetSelection=item.id;
+        await savePresets(); render(); flash(`프리셋 저장: ${name}`);return;
+      }
+      if(act==='preset-load') {
+        const p=selectedPreset(state.type);
+        if(!p)return flash('불러올 프리셋을 선택해 줘.');
+        state.settings.perKind[state.type]={enabled:!!p.value.trim(),value:p.value};
+        if(state.type==='groupchat' && typeof p.basePrompt==='string')state.settings.groupchatBasePrompt=p.basePrompt;
+        state.presetName=p.name;state.quote=null;
+        await saveSettings();render();flash(`프리셋 적용: ${p.name}`);return;
+      }
+      if(act==='preset-delete') {
+        const p=selectedPreset(state.type);
+        if(!p)return;
+        if(!confirm(`공용 프리셋 "${p.name}"을 삭제할까? 다른 방에도 프리셋 목록에서 사라져.`))return;
+        state.presets=state.presets.filter(x=>x.id!==p.id);
+        state.presetSelection='';state.presetName='';
+        await savePresets();render();flash('프리셋 삭제 완료');return;
+      }
       if (act==='save') {await saveSettings();await setGM(KEY_API,state.key);flash('설정 저장 완료');return;}
       if(act==='archive-more'){state.archiveLimit+=40;render();return;}
       if(act==='manage-more'){state.manageLimit+=100;render();return;}
@@ -1697,6 +2727,8 @@
     if(field==='xSearch'){state.xQuery=target.value;const q=state.xQuery.toLocaleLowerCase('ko-KR').trim();panel.querySelectorAll('.x-post').forEach(el=>{el.style.display=(!q || el.textContent.toLocaleLowerCase('ko-KR').includes(q))?'':'none';});return;}
     if(field==='pcBrowserSearch'){state.pcBrowserQuery=target.value;const q=target.value.toLocaleLowerCase('ko-KR').trim();panel.querySelectorAll('.pc-history-row').forEach(el=>{el.style.display=!q||el.textContent.toLocaleLowerCase('ko-KR').includes(q)?'':'none';});return;}
     if(field==='boardSearch'){state.boardQuery=target.value;const key=target.value.toLocaleLowerCase('ko-KR').trim();panel.querySelectorAll('[data-post-row]').forEach(row=>row.hidden=!!key&&!row.dataset.search.toLocaleLowerCase('ko-KR').includes(key));return;}
+    if(field==='presetName'){state.presetName=target.value.slice(0,70);return;}
+    if(field==='groupchatBasePrompt'){state.settings.groupchatBasePrompt=target.value.slice(0,300000);state.quote=null;queueSave();scheduleAutomaticEstimate();return;}
     if(field==='apiKey') {state.key=target.value;clearTimeout(saveTimer);saveTimer=setTimeout(()=>setGM(KEY_API,state.key).catch(showError),400);return;}
     if(field==='model'){state.settings.model=target.value;state.settings.thinkingLevel=validThinking(target.value,state.settings.thinkingLevel);state.quote=null;queueSave();render();return;}
     if(field==='thinkingLevel'){state.settings.thinkingLevel=validThinking(state.settings.model,target.value);state.quote=null;queueSave();updateEstimatePanel();scheduleAutomaticEstimate();return;}
@@ -1710,6 +2742,8 @@
     const target=e.target;if (!target.dataset?.field) return;
     const field=target.dataset.field;
     if(field==='wikiSearch'||field==='xSearch'){render();return;}
+    if(field==='presetSelect'){state.presetSelection=target.value;state.presetName=selectedPreset(state.type)?.name||'';render();return;}
+    if(field==='theme'){state.settings.themes[target.dataset.kind]=validTheme(target.dataset.kind,target.value);state.view='home';state.subIndex=0;state.subIndex2=0;state.expandedX.clear();queueSave();render();return;}
     if(field==='krwPerUsd'){state.settings.krwPerUsd=clamp(target.value,1,100000);queueSave();updateEstimatePanel();return;}
     if(field==='rangeMode'){state.quote=null;state.settings.rangeMode=target.value;queueSave();render();return;}
     if(field==='outputSize'){state.settings.outputSize=outputSize(target.value);state.quote=null;queueSave();updateEstimatePanel();scheduleAutomaticEstimate();return;}
