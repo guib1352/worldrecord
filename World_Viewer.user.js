@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.23
+// @version      0.2.27
 // @description  RP 대화 기반 가상 기록 열람실 · 콘텐츠별 테마 · 단체 채팅 · 방 공통 프롬프트 프리셋
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.23';
+  const VERSION = '0.2.27';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -200,13 +200,26 @@
     for (const k of ['world', 'character', 'relationship']) common[k] = { enabled: false, value: '' };
     const perKind = {};
     for (const k of TYPES) perKind[k.key] = { enabled: false, value: '' };
-    return { model: 'gemini-2.5-flash', thinkingLevel:'auto', outputSize:'standard', common, perKind, themes: defaultThemes(), groupchatBasePrompt: GROUPCHAT_BASE_PROMPT, characters: [], selectedPerson: '', rangeMode: 'recent', recentTurns: 30, rangeFrom: 1, rangeTo: 30, userName: '', krwPerUsd: DEFAULT_KRW_PER_USD, lastTab: 'phone' };
+    return { model: 'gemini-2.5-flash', thinkingLevel:'auto', outputSize:'standard', common, perKind, themes: defaultThemes(), groupchatBasePrompt: GROUPCHAT_BASE_PROMPT, characterProfiles: {}, userProfile: '', storyNotes: '', characters: [], selectedPerson: '', rangeMode: 'recent', recentTurns: 30, rangeFrom: 1, rangeTo: 30, userName: '', krwPerUsd: DEFAULT_KRW_PER_USD, lastTab: 'phone' };
   }
   function normalizeSettings(x) {
     const d = defaultSettings(), s = x && typeof x === 'object' ? x : {};
     const blocks = key => Object.fromEntries(Object.entries(d[key]).map(([k, def]) => [k, { enabled: !!(s[key]?.[k]?.enabled ?? def.enabled), value: String(s[key]?.[k]?.value ?? def.value) }]));
     const themes = Object.fromEntries(TYPES.map(t=>[t.key, validTheme(t.key, s.themes?.[t.key] ?? d.themes[t.key])]));
-    return { ...d, ...s, common: blocks('common'), perKind: blocks('perKind'), themes, groupchatBasePrompt: typeof s.groupchatBasePrompt==='string' && s.groupchatBasePrompt!==LEGACY_GROUPCHAT_BASE_PROMPT ? s.groupchatBasePrompt.slice(0,300000) : d.groupchatBasePrompt, characters: arr(s.characters).filter(x => typeof x === 'string').slice(0, 80), selectedPerson: String(s.selectedPerson || ''), model: String(s.model || d.model), thinkingLevel:validThinking(String(s.model||d.model),String(s.thinkingLevel||'auto')), outputSize:outputSize(s.outputSize), rangeMode: s.rangeMode === 'range' ? 'range' : 'recent', recentTurns: clamp(s.recentTurns ?? 30, 1, 2000), rangeFrom: Math.max(1, integer(s.rangeFrom, 1)), rangeTo: Math.max(1, integer(s.rangeTo, 30)), userName: String(s.userName||'').trim().slice(0,100), krwPerUsd: clamp(s.krwPerUsd??DEFAULT_KRW_PER_USD, 1, 100000) };
+    const characterProfiles = Object.fromEntries(Object.entries(s.characterProfiles && typeof s.characterProfiles==='object' && !Array.isArray(s.characterProfiles) ? s.characterProfiles : {})
+      .filter(([name,body])=>name && name.length<=60 && typeof body==='string')
+      .slice(0,80).map(([name,body])=>[name,body.slice(0,30000)]));
+    const common = blocks('common');
+    let storyNotes = String(s.storyNotes||'').slice(0,60000);
+    // One-time migration: previously active shared character/relationship notes move into
+    // editable story notes. Disabled fields remain stored but are no longer sent to Gemini.
+    for(const [key,label] of [['character','기존 공통 캐릭터 정보'],['relationship','기존 유저와 캐릭터의 관계']]){
+      if(!common[key].enabled||!common[key].value.trim())continue;
+      const migrated=`[${label}]\n${common[key].value.trim()}`;
+      if(!storyNotes.includes(migrated))storyNotes=[storyNotes,migrated].filter(Boolean).join('\n\n').slice(0,60000);
+      common[key]={enabled:false,value:''};
+    }
+    return { ...d, ...s, common, perKind: blocks('perKind'), themes, characterProfiles, userProfile: String(s.userProfile||'').slice(0,30000), storyNotes, groupchatBasePrompt: typeof s.groupchatBasePrompt==='string' && s.groupchatBasePrompt!==LEGACY_GROUPCHAT_BASE_PROMPT ? s.groupchatBasePrompt.slice(0,300000) : d.groupchatBasePrompt, characters: arr(s.characters).filter(x => typeof x === 'string').slice(0, 80), selectedPerson: String(s.selectedPerson || ''), model: String(s.model || d.model), thinkingLevel:validThinking(String(s.model||d.model),String(s.thinkingLevel||'auto')), outputSize:outputSize(s.outputSize), rangeMode: s.rangeMode === 'range' ? 'range' : 'recent', recentTurns: clamp(s.recentTurns ?? 30, 1, 2000), rangeFrom: Math.max(1, integer(s.rangeFrom, 1)), rangeTo: Math.max(1, integer(s.rangeTo, 30)), userName: String(s.userName||'').trim().slice(0,100), krwPerUsd: clamp(s.krwPerUsd??DEFAULT_KRW_PER_USD, 1, 100000) };
   }
   const getGM = async (k, d) => typeof GM_getValue === 'function' ? GM_getValue(k, d) : (localStorage.getItem(k) ?? d);
   const setGM = async (k, v) => typeof GM_setValue === 'function' ? GM_setValue(k, v) : localStorage.setItem(k, v);
@@ -483,12 +496,17 @@
     x: '세계관 사람들이 짧은 소식·의견·소문을 공유하는 공간이다. 다양한 참여자의 입장과 유행·풍자·논쟁, 소식의 확산을 표현한다. 특정 캐릭터의 개인 일기로 만들지 않는다.',
   };
   function instructionFor(type, person, settings, partInstruction = '') {
-    const common = [['world','세계관'],['character','캐릭터 정보'],['relationship','유저와의 관계']]
+    const common = [['world','세계관']]
       .filter(([k])=>settings.common[k].enabled && settings.common[k].value.trim())
       .map(([k,label])=>`[추가 ${label}]\n${settings.common[k].value.trim()}`);
     const spec = settings.perKind[type];
     const extra = spec.enabled && spec.value.trim() ? `[${typeOf(type).label} 전용 추가 지시]\n${spec.value.trim()}` : '';
     const description = type==='groupchat' ? String(settings.groupchatBasePrompt??GROUPCHAT_BASE_PROMPT).trim() || GROUPCHAT_BASE_PROMPT : DESCRIPTIONS[type];
+    const charProfiles=Object.entries(settings.characterProfiles||{}).filter(([name,body])=>name.trim() && typeof body==='string' && body.trim());
+    const selectedProfile=charProfiles.find(([name])=>name===person);
+    const referenceProfiles=typeOf(type).person
+      ? (selectedProfile?[selectedProfile]:[])
+      : charProfiles;
     return [
       '너는 RP 세계에 존재할 법한 개인·사회적 기록을 창작한다. 기록의 매체·내용·표현은 세계관의 시대·문화·기술·마법 수준에 맞춘다.',
       '반드시 아래 JSON 구조의 객체 하나만 반환한다. Markdown 설명이나 코드펜스는 쓰지 않는다.',
@@ -504,6 +522,9 @@
         : `[생성 분량: ${OUTPUT_SIZES[outputSize(settings.outputSize)].label}] ${OUTPUT_QUANTITY[type][outputSize(settings.outputSize)]} JSON 배열 요소 수를 실제로 이 지시에 맞춘다. 겉으로만 개수를 약속하는 설명은 쓰지 않는다.`,
       `[이번 콘텐츠] ${typeOf(type).label}\n${description}`,
       typeOf(type).person ? `[열람할 캐릭터] ${person}\n이 기록의 소유자는 이 캐릭터로 한다.` : '',
+      settings.userProfile?.trim()?`[유저 캐릭터 프로필 · 참고 정보]\n${settings.userProfile.trim()}`:'',
+      settings.storyNotes?.trim()?`[중요 서사·사건 · 참고 정보]\n${settings.storyNotes.trim()}`:'',
+      ...referenceProfiles.map(([name,body])=>`[캐릭터 정보 · ${name}]\n${body.trim()}`),
       ...common, extra,
       `[출력 데이터 구조] 다음 속성 이름과 자료형을 지킨다. 예시 데이터/이름/제목을 그대로 복사하지 말고 RP에 맞게 내용을 새로 작성한다.\n${FORMATS[type]}`,
     ].filter(Boolean).join('\n\n');
@@ -1906,9 +1927,144 @@
 @media(max-width:680px){.groupchat{padding:5px 0}.groupchat-case{width:100%;height:calc(100dvh - 240px);min-height:310px}.group-message-line time{font-size:9px}.group-message-text{padding:10px;font-size:13px}.group-chat-members{padding:7px 8px}}
 
 
+/* v0.2.24: reference notes and image export controls. */
+.lore-page textarea{width:100%;min-height:135px;resize:vertical;font-family:inherit;line-height:1.65}
+.lore-page .card{min-width:0}
+.lore-page .chips{max-height:220px;overflow-y:auto}
+.lore-page .field textarea{background:#172133;border:1px solid #53617a;border-radius:10px;color:#eef3ff;padding:12px}
+.lore-page .field textarea:focus-visible{outline:2px solid #b3a5f9;outline-offset:1px}
+.viewer-export-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:14px;padding:10px 1px 3px;min-width:0}
+.viewer-export-footer .button{white-space:nowrap}
+.pane-title-row{min-width:0}
+@media(max-width:760px){.pane-title{flex-wrap:wrap}.pane-title-row{flex:1 1 100%;min-width:0}}
+
+
+/* v0.2.26: Reader focus control overlays the preview's top-right corner.
+   No extra toolbar row and no impact on the PNG-exported preview subtree. */
+.viewer-layout > .stage { position:relative; }
+.viewer-layout > .stage > .preview-focus-btn {
+  box-sizing:border-box;
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:8;
+  display:grid;
+  place-items:center;
+  width:31px;
+  height:31px;
+  min-width:31px;
+  min-height:31px;
+  padding:0;
+  margin:0;
+  border:1px solid #64718b;
+  border-radius:9px;
+  background:#242c40;
+  color:#f4f6ff;
+  cursor:pointer;
+  font-size:19px;
+  line-height:1;
+  box-shadow:0 2px 7px #070e1b88;
+}
+.viewer-layout > .stage > .preview-focus-btn:hover { background:#343d5c; border-color:#a2b5d8; }
+.viewer-layout > .stage > .preview-focus-btn:focus-visible { outline:2px solid #d2bafd; outline-offset:2px; }
+/* Keep the existing record title and cost label clear of the overlay. */
+.viewer-layout > .stage > .preview > .preview-title { padding-right:41px !important; }
+/* Respect expand/collapse on landscape tablets too. */
+@media (min-width:701px) and (max-width:1200px) and (orientation:landscape),
+       (min-width:1201px) and (max-height:900px) and (orientation:landscape) and (pointer:coarse) {
+  .viewer-layout.focused { grid-template-columns:minmax(0,1fr) !important; }
+  .viewer-layout.focused > .controls { display:none !important; }
+}
+
+/* v0.2.27: Keep the reader flush with the top of the content grid.
+   The content heading / theme chooser occupy only the controls column. */
+.viewer-layout > .controls > .reader-controls-heading {
+  box-sizing:border-box;
+  display:flex;
+  align-items:center;
+  flex-wrap:nowrap;
+  gap:7px;
+  width:100%;
+  min-width:0;
+  min-height:30px;
+  padding:1px 0;
+  flex:0 0 auto;
+}
+.reader-controls-heading > h3 {
+  flex:0 1 auto;
+  min-width:0;
+  max-width:48%;
+  margin:0;
+  font-size:clamp(12px,1.25vw,17px);
+  font-weight:800;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.reader-controls-heading > .theme-picker {
+  box-sizing:border-box;
+  display:flex;
+  align-items:center;
+  flex:1 1 0;
+  width:auto;
+  max-width:none;
+  min-width:0;
+  gap:5px;
+  padding:4px 6px;
+  white-space:nowrap;
+}
+.reader-controls-heading > .theme-picker > span { font-size:10px; flex:none; }
+.reader-controls-heading > .theme-picker > select {
+  box-sizing:border-box;
+  flex:1 1 0;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  height:26px;
+  padding:3px 18px 3px 4px;
+  font-size:11px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+/* Portrait tablets use a single navigation row: no duplicate full-width title row. */
+.tablet-reader-theme { display:none; min-width:0; }
+@media (max-width:1200px), (max-height:900px) and (pointer:coarse) {
+  .tablet-view-switch { align-items:center; flex-wrap:nowrap; min-width:0; overflow-x:auto; overflow-y:hidden; }
+  .tablet-view-switch > button { flex:0 0 auto; white-space:nowrap; }
+  .tablet-reader-theme { display:flex; flex:1 1 130px; min-width:112px; max-width:240px; margin-left:auto; }
+  .tablet-reader-theme .theme-picker {
+    box-sizing:border-box;
+    display:flex;
+    flex:1 1 0;
+    width:100%;
+    min-width:0;
+    max-width:none;
+    gap:4px;
+    padding:3px 5px;
+  }
+  .tablet-reader-theme .theme-picker > span { font-size:10px; flex:none; }
+  .tablet-reader-theme .theme-picker > select {
+    box-sizing:border-box;
+    flex:1 1 0;
+    min-width:0;
+    width:100%;
+    height:27px;
+    padding:3px 16px 3px 4px;
+    font-size:11px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+}
+/* Landscape tablets render side-by-side; the controls heading is already visible. */
+@media (min-width:701px) and (orientation:landscape) {
+  .tablet-reader-theme { display:none !important; }
+}
+
 `;
 
-  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, presets:[], presetName:'', presetSelection:'', helpOpen:false, globalDeleteConfirm:null, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
+  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, profilePerson:'', exporting:false, presets:[], presetName:'', presetSelection:'', helpOpen:false, globalDeleteConfirm:null, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
   const host = document.createElement('div');
   host.id = 'prwv-root';
   const root = host.attachShadow({ mode:'closed' });
@@ -1940,14 +2096,14 @@
   function selectedPreset(kind) {return presetsOf(kind).find(p=>p.id===state.presetSelection)||null;}
 
   async function loadRoom(room) {
-    state.room = room; state.selectedRecord = ''; state.checked.clear(); state.view = 'home'; state.tabletPane='viewer'; state.presetSelection=''; state.presetName='';
+    state.room = room; state.selectedRecord = ''; state.checked.clear(); state.view = 'home'; state.tabletPane='viewer'; state.presetSelection=''; state.presetName='';state.profilePerson='';
     if (!room) { state.entries=[];state.settings=defaultSettings(); render(); return; }
     try {
       const raw = await getGM(configKey(room), '');
       state.settings = normalizeSettings(raw ? JSON.parse(raw) : null);
       state.entries = await listRecords(room);
       state.type = TYPES.some(t=>t.key===state.settings.lastTab) ? state.settings.lastTab : 'phone';
-      state.selectedRecord = currentEntries()[0]?.id || ''; state.quote=null;
+      state.selectedRecord = currentEntries()[0]?.id || ''; state.quote=null;state.profilePerson=state.settings.selectedPerson||state.settings.characters[0]||'';
     } catch (e) { state.entries=[]; showError(e); }
     render();
   }
@@ -1964,7 +2120,7 @@
   function labelOf(r) { return `${r.person ? r.person+' · ' : ''}${r.rangeLabel || ''}`; }
 
   function sidebar() {
-    return `<aside class="side">${TYPES.map(t=>`<button data-act="kind" data-kind="${t.key}" class="${state.type===t.key&&state.tab==='viewer'?'active':''}">${t.icon} ${t.label}</button>`).join('')}<small class="side-caption">관리</small><button data-act="tab" data-tab="settings" class="${state.tab==='settings'?'active':''}">⚙ 프롬프트·API</button><button data-act="tab" data-tab="manage" class="${state.tab==='manage'?'active':''}">🗃 기록 관리</button></aside>`;
+    return `<aside class="side">${TYPES.map(t=>`<button data-act="kind" data-kind="${t.key}" class="${state.type===t.key&&state.tab==='viewer'?'active':''}">${t.icon} ${t.label}</button>`).join('')}<small class="side-caption">관리</small><button data-act="tab" data-tab="lore" class="${state.tab==='lore'?'active':''}">📖 인물·서사 자료</button><button data-act="tab" data-tab="settings" class="${state.tab==='settings'?'active':''}">⚙ 프롬프트·API</button><button data-act="tab" data-tab="manage" class="${state.tab==='manage'?'active':''}">🗃 기록 관리</button></aside>`;
   }
   function characterPicker() {
     if (!typeOf(state.type).person) return '';
@@ -1981,7 +2137,7 @@
   function estimateContextKey() {
     const s=state.settings;
     return JSON.stringify([state.room,state.type,s.model,s.thinkingLevel,s.outputSize,s.selectedPerson,s.rangeMode,
-      s.recentTurns,s.rangeFrom,s.rangeTo,s.userName,s.common,s.perKind[state.type]]);
+      s.recentTurns,s.rangeFrom,s.rangeTo,s.userName,s.common,s.perKind[state.type],s.userProfile,s.storyNotes,s.characterProfiles]);
   }
   function estimateRangeKey(room,s) {
     return JSON.stringify([room,s.rangeMode,s.rangeFrom,s.rangeMode==='recent'?s.recentTurns:s.rangeTo]);
@@ -2209,14 +2365,102 @@
     return `<div class="aether-feed"><div class="aether-lines"></div><header><span>✧</span><div><h2>${text(d.site||'마법 소식망',85)}</h2></div><span>✦</span></header><div class="aether-layout"><main>${notes}</main><aside><div class="aether-crystal">✦</div><h3>왕국의 화제</h3>${trend}</aside></div></div>`;
   }
 
+  // Snapshot of the currently rendered record (including the opened detail screen).
+  // Serialize a fully styled XHTML clone into an SVG data URI. Unlike a blob: SVG URL,
+  // a data: SVG URI can be drawn to a canvas and exported as PNG in Chromium.
+  function cloneSnapshotStyles(source, copy) {
+    if(source.nodeType===Node.ELEMENT_NODE && copy.nodeType===Node.ELEMENT_NODE){
+      const css=getComputedStyle(source);
+      let declarations='';
+      for(let i=0;i<css.length;i++){
+        const prop=css[i],value=css.getPropertyValue(prop);
+        if(value)declarations+=prop+':'+value+';';
+      }
+      copy.setAttribute('style',declarations);
+      if(source instanceof HTMLInputElement){copy.setAttribute('value',source.value);}
+      if(source instanceof HTMLTextAreaElement){copy.textContent=source.value;}
+      if(source instanceof HTMLSelectElement){copy.value=source.value;}
+      const scrollable=source.scrollHeight>source.clientHeight+3 && /auto|scroll/.test(css.overflowY);
+      if(scrollable){
+        copy.style.height='auto';copy.style.maxHeight='none';copy.style.overflowY='visible';
+        // Expand any ancestor that would otherwise clip the taller paper or article.
+        for(let parent=copy.parentElement;parent;parent=parent.parentElement){
+          const originalCss=parent.style;
+          if(/hidden|clip/.test(originalCss.overflowY)||/hidden|clip/.test(originalCss.overflow)){
+            parent.style.overflow='visible';parent.style.height='auto';parent.style.maxHeight='none';
+          }
+        }
+      }
+      if(source.classList.contains('preview')){
+        copy.style.height='auto';copy.style.maxHeight='none';copy.style.minHeight='0';
+        copy.style.overflow='visible';copy.style.width='100%';
+      }
+      if(source.classList.contains('ios-scroll')||source.classList.contains('pc-window-content')){
+        copy.style.height='auto';copy.style.maxHeight='none';copy.style.overflow='visible';
+      }
+    }
+    const originalChildren=[...source.childNodes], clonedChildren=[...copy.childNodes];
+    for(let i=0;i<Math.min(originalChildren.length,clonedChildren.length);i++)cloneSnapshotStyles(originalChildren[i],clonedChildren[i]);
+  }
+  async function exportPreviewPng(button) {
+    const record=currentRecord();
+    if(!record||state.exporting)return;
+    // Tablet controls can hide the reader; switch to the reader before taking a snapshot.
+    if(state.tabletPane==='controls'){
+      state.tabletPane='viewer';render();
+      button=panel.querySelector('.viewer-export-footer [data-act=export-png]')||button;
+    }
+    const previewEl=panel.querySelector('.stage .preview');
+    if(!previewEl || previewEl.getBoundingClientRect().width<10)return flash('열람 화면으로 전환한 다음 저장해 줘.');
+    state.exporting=true;
+    const before=button.textContent;button.disabled=true;button.textContent='PNG 만드는 중…';
+    let temp=null;
+    try{
+      const width=Math.max(320,Math.ceil(previewEl.getBoundingClientRect().width));
+      const clone=previewEl.cloneNode(true);
+      cloneSnapshotStyles(previewEl,clone);
+      const holder=document.createElement('div');
+      holder.setAttribute('style',`position:fixed;left:-100000px;top:0;width:${width}px;overflow:visible;pointer-events:none;z-index:-9999`);
+      holder.appendChild(clone);
+      // Use the original shadow stylesheet by placing the measuring clone inside the same shadow root.
+      root.appendChild(holder);temp=holder;
+      clone.style.width=width+'px';clone.style.height='auto';clone.style.maxHeight='none';clone.style.overflow='visible';
+      const height=Math.max(120,Math.ceil(clone.scrollHeight+4));
+      const viewWidth=Math.max(width,Math.ceil(clone.scrollWidth));
+      if(height>24000||viewWidth>12000)throw new Error('기록이 너무 길어서 한 장으로 저장할 수 없어. 세부 화면으로 나눠 저장해 줘.');
+      const scale=Math.min(2,12000/Math.max(viewWidth,height),Math.sqrt(26000000/(viewWidth*height)));
+      if(scale<0.35)throw new Error('이미지 크기가 너무 커. 상세 화면에서 나눠 저장해 줘.');
+      // SVG rendering needs XHTML namespace and an image data: URI (blob: taints the canvas).
+      clone.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+      const xhtml=new XMLSerializer().serializeToString(clone);
+      const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${viewWidth}" height="${height}" viewBox="0 0 ${viewWidth} ${height}"><foreignObject x="0" y="0" width="100%" height="100%">${xhtml}</foreignObject></svg>`;
+      const dataUrl='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+      const image=new Image();
+      await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(new Error('브라우저가 화면 이미지를 변환하지 못했어.'));image.src=dataUrl;});
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(viewWidth*scale));canvas.height=Math.max(1,Math.round(height*scale));
+      const ctx=canvas.getContext('2d',{alpha:false});
+      if(!ctx)throw new Error('이미지 처리 화면을 만들지 못했어.');
+      ctx.fillStyle='#111a29';ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(image,0,0,canvas.width,canvas.height);
+      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+      if(!blob)throw new Error('PNG 파일 생성에 실패했어.');
+      const safeName=String(record.person||record.payload?.owner||'세계관').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').slice(0,35);
+      const filename=`열람실_${typeOf(record.kind).label}_${safeName}_${new Date(record.createdAt).toISOString().slice(0,10)}.png`;
+      const blobUrl=URL.createObjectURL(blob);
+      try{const a=document.createElement('a');a.href=blobUrl;a.download=filename;document.body.append(a);a.click();a.remove();}finally{setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);}
+      flash('현재 열람 화면을 PNG 파일로 저장했어.');
+    }catch(e){showError(e);}
+    finally{temp?.remove();state.exporting=false;button.disabled=false;button.textContent=before;}
+  }
   function viewerPage() {
     // Tablet: choose between the reader and generation/archive controls without
     // forcing the reader to sit below several screens of settings.
     const empty=!currentRecord();
     const tabletControls=state.tabletPane==='controls'||empty;
-    return `<div class="pane-title"><div class="pane-title-row"><h3>${typeOf(state.type).icon} ${typeOf(state.type).label}</h3>${themePicker(state.type)}</div></div>
-      <div class="tablet-view-switch" role="group" aria-label="태블릿 화면 전환"><button class="button slim ${!tabletControls?'primary':''}" data-act="tablet-pane" data-pane="viewer" ${empty?'disabled':''} aria-pressed="${!tabletControls}">▣ 열람 화면</button><button class="button slim ${tabletControls?'primary':''}" data-act="tablet-pane" data-pane="controls" aria-pressed="${tabletControls}">⚙ 생성·보관 기록</button></div>
-      <div class="viewer-layout ${state.focused?'focused':''} ${tabletControls?'tablet-controls':'tablet-reader'} ${empty?'no-record':''}"><div class="controls stack">${characterPicker()}${generatorControls()}${archiveList()}</div><div class="stage"><div class="focus-bar"><button class="button slim ghost" data-act="focus">${state.focused?'↙ 생성 설정 표시':'⛶ 열람 화면 크게'}</button></div>${preview()}</div></div>`;
+    return `<div class="tablet-view-switch" role="group" aria-label="태블릿 화면 전환"><button class="button slim ${!tabletControls?'primary':''}" data-act="tablet-pane" data-pane="viewer" ${empty?'disabled':''} aria-pressed="${!tabletControls}">▣ 열람 화면</button><button class="button slim ${tabletControls?'primary':''}" data-act="tablet-pane" data-pane="controls" aria-pressed="${tabletControls}">⚙ 생성·보관 기록</button>${!tabletControls?`<div class="tablet-reader-theme">${themePicker(state.type)}</div>`:''}</div>
+      <div class="viewer-layout ${state.focused?'focused':''} ${tabletControls?'tablet-controls':'tablet-reader'} ${empty?'no-record':''}"><div class="controls stack"><div class="reader-controls-heading"><h3 title="${text(typeOf(state.type).label,70)}">${typeOf(state.type).icon} ${typeOf(state.type).label}</h3>${themePicker(state.type)}</div>${characterPicker()}${generatorControls()}${archiveList()}</div><div class="stage"><button type="button" class="preview-focus-btn" data-act="focus" aria-label="${state.focused?'생성 설정 다시 표시':'열람 화면 크게 보기'}" title="${state.focused?'생성 설정 다시 표시':'열람 화면 크게 보기'}" aria-pressed="${state.focused}">${state.focused?'↙':'⛶'}</button>${preview()}</div></div>
+      <div class="viewer-export-footer"><button class="button slim ghost" data-act="export-png" ${empty?'disabled':''} title="현재 열람 화면을 PNG로 저장">▧ PNG 저장</button></div>`;
   }
   // 상세 화면 본문에는 미리보기용 글자 수 제한을 적용하지 않는다.
   const textFull = x => esc(String(x ?? ''));
@@ -2404,21 +2648,35 @@
     const view=state.type==='phone'?phoneView(data,theme):state.type==='pc'?pcView(data,theme):state.type==='diary'?diaryView(data,theme):state.type==='live'?liveView(data):state.type==='groupchat'?groupchatView(data,theme,r.person):state.type==='x'?xView(data,theme):webPreview(state.type,data,theme);
     return `<div class="preview">${titleline(`${r.person?r.person+' · ':''}${typeOf(r.kind).label}`,`<span class="pill">${text(r.rangeLabel,70)}${usageSummary(r)}</span>`)}${view}</div>`;
   }
+  function lorePage() {
+    const s=state.settings;
+    const names=[...new Set([...s.characters, ...Object.keys(s.characterProfiles||{})])].filter(Boolean);
+    const person=names.includes(state.profilePerson)?state.profilePerson:(s.selectedPerson&&names.includes(s.selectedPerson)?s.selectedPerson:(names[0]||''));
+    state.profilePerson=person;
+    return `<div class="pane-title"><div><h3>📖 인물·서사 자료</h3><small>이 RP방의 생성 지침에 참고되는 정보</small></div></div><div class="stack lore-page">
+      ${promptBlock('common','world','세계관','이 세계의 시대, 사회, 기술 수준, 법칙, 조직, 지리 등')}
+      <div class="card stack"><h4>캐릭터별 정보</h4><div class="chips">${names.map(n=>`<button class="chip ${person===n?'active':''}" data-act="profile-person" data-person="${esc(n)}">${text(n,60)}</button>`).join('')||'<span class="subtle">등록된 캐릭터가 없어. 이름을 추가해 줘.</span>'}</div>
+        <div class="row"><input type="text" data-field="profileAddName" maxlength="60" placeholder="새 캐릭터 이름" style="flex:1;min-width:140px"><button class="button slim" data-act="profile-add">캐릭터 추가</button></div>
+        ${person?`<label class="field"><span>${text(person,60)} · 프로필</span><textarea data-field="characterProfile" data-person="${esc(person)}" rows="8" maxlength="30000" placeholder="성격, 말투, 특징, 직업, 관계 등 자유롭게 적기">${text(s.characterProfiles[person]||'',30000)}</textarea></label>`:''}
+        <p class="subtle">여기 적은 정보는 해당 캐릭터의 개인 기록을 만들 때 참고해. 커뮤니티처럼 특정 인물을 지정하지 않는 콘텐츠에는 등록된 캐릭터 정보를 함께 참고해.</p>
+      </div>
+      <div class="card stack"><h4>유저 캐릭터 프로필</h4><p class="subtle">유저 캐릭터의 설정. 실제 대사나 기록을 AI가 대신 작성하도록 허용하는 항목은 아니야.</p><label class="field"><span>${text(s.userName||'유저 캐릭터',75)}</span><textarea data-field="userProfile" rows="8" maxlength="30000" placeholder="외모, 성격, 신분, 말투, 능력, 과거, 다른 캐릭터와의 관계 등">${text(s.userProfile,30000)}</textarea></label></div>
+      <div class="card stack"><h4>중요 서사·사건</h4><label class="field"><span>진행된 사건, 비밀, 관계 변화, 기억할 이야기</span><textarea data-field="storyNotes" rows="12" maxlength="60000" placeholder="예: 1일차 - ...\n중요 사건 - ...\n현재 관계 - ...">${text(s.storyNotes,60000)}</textarea></label><p class="subtle">모든 콘텐츠의 생성 참고자료에 포함돼. 방별로 자동 저장되며, 기존 생성 기록은 바뀌지 않아.</p></div>
+      <div class="row"><button class="button primary" data-act="save">현재 방 자료 저장</button><span class="subtle">자동 저장도 적용돼.</span></div>
+    </div>`;
+  }
   function promptBlock(group, key, title, placeholder) {
     const item=state.settings[group][key];
     return `<div class="card"><div class="section-header"><b>${title}</b><label class="toggle"><input data-field="toggle" data-group="${group}" data-key="${key}" type="checkbox" ${item.enabled?'checked':''}> 활성화</label></div><textarea data-field="prompt" data-group="${group}" data-key="${key}" rows="5" placeholder="${esc(placeholder)}" ${!item.enabled?'disabled':''}>${text(item.value,300000)}</textarea><p class="subtle">비활성화하거나 비워 두면 API 호출에 포함하지 않음. 내용은 방별로 저장.</p></div>`;
   }
   function settingsPage() {
     const s=state.settings;
-    return `<div class="pane-title"><div><h3>⚙ 생성 설정과 프롬프트</h3><small>세계관·캐릭터·관계는 모든 콘텐츠에 공통 적용</small></div></div><div class="stack">
+    return `<div class="pane-title"><div><h3>⚙ 생성 설정과 프롬프트</h3></div></div><div class="stack">
      <div class="card stack"><h4>Gemini API</h4><label class="field"><span>Gemini API 키 (별도 저장, 다른 RP방에서도 사용)</span><input data-field="apiKey" type="password" autocomplete="off" placeholder="AIza..." value="${esc(state.key)}"></label><label class="field"><span>사용할 Gemini 모델</span><select data-field="model">${state.modelOptions.concat(state.modelOptions.some(o=>o[0]===s.model)?[]:[[s.model,s.model+' (기존 설정)']]).map(([id,name])=>`<option value="${esc(id)}" ${id===s.model?'selected':''}>${text(name,100)} · ${text(id,100)}</option>`).join('')}</select></label><div class="row"><button class="button slim" data-act="models">⟳ 내 API에서 모델 목록 불러오기</button><span class="subtle">API 조회 목록 우선 표시. 목록에 없는 모델은 「미확인」으로 유지되며 호출 가능 여부는 API 키에 따라 달라져.</span></div><p class="subtle">API 키는 Tampermonkey 저장소에 저장돼. 제3자와 스크립트를 공유할 때 API 키를 포함하지 마.</p></div>
      <div class="card stack"><h4>추론 강도</h4><label class="field"><span>선택한 모델의 사고 수준</span><select data-field="thinkingLevel">${thinkingOptions(s.model).map(v=>`<option value="${v}" ${v===validThinking(s.model,s.thinkingLevel)?'selected':''}>${text(THINKING_LABELS[v])}</option>`).join('')}</select></label><p class="subtle">모델에 따라 선택 가능한 강도가 달라. Gemini 3/4는 사고 수준, 2.5는 사고 예산을 적용해. 강도가 높으면 추론 토큰 비용이 늘 수 있어. 기본값은 모델 자동 설정.</p><p class="subtle">자동 재시도: Google이 비과금이라고 명시한 HTTP 500 오류만, 최초 요청 포함 최대 5회. 정상 응답 이후 결과 부족·파싱 실패·429·503·시간 초과는 자동 재시도하지 않아.</p></div>
      <div class="card stack"><h4>유저 캐릭터</h4><label class="field"><span>유저 캐릭터 이름 (필수)</span><input data-field="userName" type="text" maxlength="100" placeholder="RP에서 사용하는 유저 캐릭터의 이름" value="${esc(s.userName)}"></label><p class="subtle">이름으로 작성자를 식별해. 유저 캐릭터가 직접 작성한 기록은 생성하지 않아.</p></div>
      <div class="card stack"><label class="field"><span>원화 환산 환율 (1 USD = 몇 원)</span><input data-field="krwPerUsd" type="number" min="1" max="100000" step="1" value="${s.krwPerUsd}"></label><p class="subtle">현재 설정 환율로만 환산. 실시간 환율 조회나 추가 Gemini 호출은 하지 않아.</p></div>
-     ${promptBlock('common','world','1. 세계관','이 세계의 시대, 사회, 기술 수준, 법칙, 조직, 지리 등')}
-     ${promptBlock('common','character','2. 캐릭터 정보','캐릭터 성격, 역할, 말투, 직업, 주요 프로필 등을 붙여넣기')}
-     ${promptBlock('common','relationship','3. 유저와 캐릭터의 관계','현재 관계, 감정, 과거 사건, 호칭 및 관계의 진행 상황')}
-     <div class="card"><h4>4. 콘텐츠별 개별 프롬프트</h4><div class="chips">${TYPES.map(t=>`<button data-act="settings-kind" data-kind="${t.key}" class="chip ${state.type===t.key?'active':''}">${t.icon} ${t.label}</button>`).join('')}</div></div>
+     <div class="card"><h4>콘텐츠별 개별 프롬프트</h4><div class="chips">${TYPES.map(t=>`<button data-act="settings-kind" data-kind="${t.key}" class="chip ${state.type===t.key?'active':''}">${t.icon} ${t.label}</button>`).join('')}</div></div>
      ${state.type==='groupchat'?`<div class="card stack"><h4>단톡 기본 생성 프롬프트</h4><textarea data-field="groupchatBasePrompt" rows="5" aria-label="단톡 기본 생성 프롬프트">${text(s.groupchatBasePrompt,300000)}</textarea><p class="subtle">이 내용은 단톡 생성 요청에 기본 지침으로 포함돼. 비워 두면 기본 문구로 복구돼. 이 아래의 개별 추가 지시와 중복 전송하지 않아.</p></div>`:''}
      ${promptBlock('perKind',state.type,`${typeOf(state.type).icon} ${typeOf(state.type).label} 전용 추가 지시`,'이 콘텐츠에서 보고 싶은 내용의 분위기, 특징, 분량, 특정 기록 등에 관한 추가 지시')}
      <div class="card stack preset-box"><h4>📌 ${typeOf(state.type).label} 프롬프트 프리셋</h4>
@@ -2461,7 +2719,7 @@
     const scroller=panel.querySelector('.main'); const scrollPos=scroller?.scrollTop || 0;
     panel.hidden=false;
     panel.innerHTML=`<div class="header"><div><h2>✦ 가상세계 열람실 <small>v${VERSION}</small></h2></div><div class="head-actions"><button class="icon-btn help-trigger" data-act="toggle-help" aria-expanded="${state.helpOpen}" title="생성량·요금·기록 정책 설명">? 도움말</button><button class="icon-btn" data-act="close" title="접고 캐챗 계속하기">─ 접기</button></div></div>
-      <div class="shell">${sidebar()}<main class="main">${!state.room?`<div class="empty"><b>현재 RP 채팅방을 열어 줘.</b><p>크랙의 개별 채팅방에서 사용할 수 있어.</p></div>`:state.tab==='settings'?settingsPage():state.tab==='manage'?managePage():viewerPage()}</main></div>`;
+      <div class="shell">${sidebar()}<main class="main">${!state.room?`<div class="empty"><b>현재 RP 채팅방을 열어 줘.</b><p>크랙의 개별 채팅방에서 사용할 수 있어.</p></div>`:state.tab==='settings'?settingsPage():state.tab==='manage'?managePage():state.tab==='lore'?lorePage():viewerPage()}</main></div>`;
     if(state.helpOpen)panel.insertAdjacentHTML('beforeend',helpPanel());
     panel.append(toastBox);
     panel.querySelector('.main').scrollTop=scrollPos;
@@ -2621,6 +2879,16 @@
       if (act==='toggle-help') {state.helpOpen=!state.helpOpen;render();return;}
       if (act==='kind'||act==='settings-kind') {state.focused=false;state.tabletPane='viewer';state.quote=null;state.boardQuery=''; state.wikiQuery=''; state.wikiTab='article';state.xQuery='';state.xFilter='all';state.expandedX.clear();state.newsCategory='전체';state.type=btn.dataset.kind;state.view='home';state.selectedRecord='';state.subIndex=0;state.settings.lastTab=state.type;state.presetSelection='';state.presetName='';if(act==='kind')state.tab='viewer';await saveSettings();render();return; }
       if (act==='tab') {state.tab=btn.dataset.tab;state.globalDeleteConfirm=null;render();return;}
+      if (act==='profile-person') {state.profilePerson=btn.dataset.person||'';render();return;}
+      if (act==='profile-add') {
+        const input=panel.querySelector('[data-field=profileAddName]');
+        const name=String(input?.value||'').trim().slice(0,60);
+        if(!name)return flash('캐릭터 이름을 입력해 줘.');
+        if(!state.settings.characters.includes(name) && state.settings.characters.length>=80)return flash('캐릭터는 최대 80명까지 등록할 수 있어.');
+        state.settings.characters=[...new Set([...state.settings.characters,name])];
+        state.profilePerson=name;await saveSettings();render();return;
+      }
+      if (act==='export-png') {await exportPreviewPng(btn);return;}
       if (act==='person') {state.quote=null;state.settings.selectedPerson=btn.dataset.person;state.view='home';state.selectedRecord='';await saveSettings();render();return;}
       if (act==='add-person') {const el=panel.querySelector('[data-field=addPerson]');const n=String(el?.value||'').trim().slice(0,60);if(!n)return flash('이름을 입력해 줘.');state.settings.characters=[...new Set([...state.settings.characters,n])];state.settings.selectedPerson=n;await saveSettings();render();return;}
       if (act==='detect') {await detectPeople();return;}
@@ -2728,6 +2996,16 @@
     if(field==='pcBrowserSearch'){state.pcBrowserQuery=target.value;const q=target.value.toLocaleLowerCase('ko-KR').trim();panel.querySelectorAll('.pc-history-row').forEach(el=>{el.style.display=!q||el.textContent.toLocaleLowerCase('ko-KR').includes(q)?'':'none';});return;}
     if(field==='boardSearch'){state.boardQuery=target.value;const key=target.value.toLocaleLowerCase('ko-KR').trim();panel.querySelectorAll('[data-post-row]').forEach(row=>row.hidden=!!key&&!row.dataset.search.toLocaleLowerCase('ko-KR').includes(key));return;}
     if(field==='presetName'){state.presetName=target.value.slice(0,70);return;}
+    if(field==='characterProfile'){
+      const name=String(target.dataset.person||'').slice(0,60);
+      if(!name)return;
+      state.settings.characterProfiles[name]=target.value.slice(0,30000);
+      state.quote=null;queueSave();scheduleAutomaticEstimate();return;
+    }
+    if(field==='userProfile'||field==='storyNotes'){
+      state.settings[field]=target.value.slice(0,field==='storyNotes'?60000:30000);
+      state.quote=null;queueSave();scheduleAutomaticEstimate();return;
+    }
     if(field==='groupchatBasePrompt'){state.settings.groupchatBasePrompt=target.value.slice(0,300000);state.quote=null;queueSave();scheduleAutomaticEstimate();return;}
     if(field==='apiKey') {state.key=target.value;clearTimeout(saveTimer);saveTimer=setTimeout(()=>setGM(KEY_API,state.key).catch(showError),400);return;}
     if(field==='model'){state.settings.model=target.value;state.settings.thinkingLevel=validThinking(target.value,state.settings.thinkingLevel);state.quote=null;queueSave();render();return;}
