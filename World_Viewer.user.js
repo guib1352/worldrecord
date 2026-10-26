@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.28
+// @version      0.2.29
 // @description  RP 대화 기반 가상 기록 열람실 · 콘텐츠별 테마 · 단체 채팅 · 방 공통 프롬프트 프리셋
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.28';
+  const VERSION = '0.2.29';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -2130,7 +2130,45 @@
 .free-estimate b{font-size:16px;color:#efc37f}
 .free-estimate small{color:#9cb0cd;font-size:10px}
 .free-preview .preview-title{align-items:flex-start;flex-wrap:wrap}
-.free-output-text{box-sizing:border-box;min-height:280px;padding:clamp(15px,2vw,30px);background:#182233;border:1px solid #334258;border-radius:12px;color:#e7e9f0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85;font-size:clamp(13px,1.08vw,16px);user-select:text}
+.free-output-text{box-sizing:border-box;min-height:280px;padding:clamp(15px,2vw,30px);background:#182233;border:1px solid #334258;border-radius:12px;color:#e7e9f0;white-space:normal;overflow-wrap:anywhere;line-height:1.85;font-size:clamp(13px,1.08vw,16px);user-select:text}
+
+/* v0.2.29 자유 생성: 원문은 유지하고 열람/PDF가 아닌 PNG 화면에만 마크다운 표시 */
+.free-markdown{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.free-markdown :first-child{margin-top:0}
+.free-markdown :last-child{margin-bottom:0}
+.free-markdown h1,.free-markdown h2,.free-markdown h3,.free-markdown h4,.free-markdown h5,.free-markdown h6{font:inherit;font-weight:800;line-height:1.4;color:#f5f7ff;margin:1.45em 0 .58em;overflow-wrap:anywhere}
+.free-markdown h1{font-size:1.65em;border-bottom:1px solid #46536a;padding-bottom:.42em}
+.free-markdown h2{font-size:1.38em;border-bottom:1px solid #38475f;padding-bottom:.36em}
+.free-markdown h3{font-size:1.2em}
+.free-markdown h4{font-size:1.1em}
+.free-markdown h5,.free-markdown h6{font-size:1em}
+.free-markdown p{margin:.68em 0 1em;line-height:1.85}
+.free-markdown strong{font-weight:800;color:#fff}
+.free-markdown em{font-style:italic}
+.free-markdown del{opacity:.7;text-decoration:line-through}
+.free-markdown ul,.free-markdown ol{display:block;margin:.7em 0 1em;padding-left:1.7em;list-style-position:outside}
+.free-markdown ul{list-style-type:disc}
+.free-markdown ol{list-style-type:decimal}
+.free-markdown li{display:list-item;margin:.26em 0;padding-left:.1em;line-height:1.7}
+.free-markdown li>ul,.free-markdown li>ol{margin:.2em 0 .25em}
+.free-markdown li>p{margin:.2em 0}
+.free-markdown li input[type=checkbox]{accent-color:#a9a1ff;pointer-events:none;margin-right:6px}
+.free-markdown blockquote{margin:1.1em 0;padding:.35em 1.1em;border-left:4px solid #9c95e8;border-radius:0 8px 8px 0;background:#222f46;color:#d5dff2}
+.free-markdown blockquote p{margin:.35em 0}
+.free-markdown hr{height:0;border:0;border-top:1px solid #4c5c75;margin:1.45em 0}
+.free-markdown :not(pre)>code{padding:.16em .38em;background:#2b3750;color:#f2d4ad;border:1px solid #3c4962;border-radius:5px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.9em;white-space:break-spaces}
+.free-markdown pre{box-sizing:border-box;display:block;max-width:100%;white-space:pre;overflow-x:auto;padding:14px 16px;margin:1.1em 0;border:1px solid #394963;border-radius:10px;background:#0d1523;color:#e4ecff;line-height:1.6;tab-size:2}
+.free-markdown pre code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em;white-space:pre;word-break:normal;overflow-wrap:normal;background:transparent;color:inherit}
+.free-markdown a{color:#a5c8ff;text-decoration:underline;text-underline-offset:3px}
+.free-markdown a:hover{color:#d5e6ff}
+.free-md-table-wrap{display:block;max-width:100%;overflow-x:auto;margin:1.1em 0;border:1px solid #40516c;border-radius:9px}
+.free-markdown table{border-collapse:collapse;width:100%;min-width:max-content;line-height:1.55;font-size:.95em}
+.free-markdown th,.free-markdown td{border-right:1px solid #40516c;border-bottom:1px solid #40516c;padding:9px 12px;text-align:left;vertical-align:top}
+.free-markdown th:last-child,.free-markdown td:last-child{border-right:0}
+.free-markdown tbody tr:last-child td{border-bottom:0}
+.free-markdown th{color:#f3f7ff;background:#24324a;font-weight:800}
+.free-markdown tbody tr:nth-child(even){background:rgba(120,145,185,.07)}
+
 .free-layout .stage .preview{min-height:calc(100vh - 155px)}
 .free-export-footer{gap:8px}
 @media(max-width:840px){.free-layout .stage .preview{min-height:0}.free-output-text{min-height:190px;padding:15px}}
@@ -2546,10 +2584,181 @@
     const items=currentEntries();
     return `<div class="card"><div class="section-header"><b>보관된 자유 생성 · ${items.length}개</b></div><div class="archive">${items.slice(0,state.archiveLimit).map(r=>`<div class="archive-row ${currentRecord()?.id===r.id?'selected':''}"><button data-act="record" data-id="${esc(r.id)}"><b>${text(r.payload?.title||'자유 생성',85)}</b><small>${fmtDate(r.createdAt)} · ${text(r.rangeLabel,35)}</small></button><button class="button slim ghost" data-act="single-delete" data-id="${esc(r.id)}">삭제</button></div>`).join('')||'<div class="subtle">생성한 글이 없어.</div>'}${items.length>state.archiveLimit?`<button class="button slim" data-act="archive-more">더 보기 (${items.length-state.archiveLimit}개)</button>`:''}</div></div>`;
   }
+  // 자유 생성 결과 표시용 마크다운 파서. 입력 HTML을 그대로 렌더링하지 않으며,
+  // 텍스트와 URL 속성을 모두 escape해서 외부 생성 결과를 안전하게 표시한다.
+  // 마크다운 사용 여부는 화면에만 영향을 주고 기록 원문/복사/TXT 저장은 유지된다.
+  function renderFreeMarkdown(source) {
+    const rows=String(source??'').replace(/\r\n?/g,'\n').split('\n');
+    const safeLink=url=>{
+      const u=String(url||'').trim().replace(/^<|>$/g,'');
+      return /^(?:https?:\/\/|mailto:)/i.test(u) && !/[\u0000-\u001f\u007f]/.test(u) ? u : '';
+    };
+    const closingMarker=(str,marker,at)=>{
+      let pos=at;
+      while((pos=str.indexOf(marker,pos))!==-1){
+        let escapes=0;
+        for(let n=pos-1;n>=0&&str[n]==='\\';n--)escapes++;
+        if(escapes%2===0)return pos;
+        pos+=marker.length;
+      }
+      return -1;
+    };
+    const inline=(value,depth=0)=>{
+      const str=String(value??'');
+      if(depth>12)return esc(str);
+      let out='', i=0;
+      while(i<str.length){
+        if(str[i]==='\\' && i+1<str.length && /[\\`*_{}\[\]()#+.!>|~-]/.test(str[i+1])){
+          out+=esc(str[i+1]);i+=2;continue;
+        }
+        if(str[i]==='`'){
+          let j=i+1;
+          while(str[j]==='`')j++;
+          const marker=str.slice(i,j);
+          const end=closingMarker(str,marker,j);
+          if(end!==-1){out+='<code>'+esc(str.slice(j,end).replace(/\n/g,' '))+'</code>';i=end+marker.length;continue;}
+        }
+        // 마크다운 이미지는 외부 사이트에 자동 요청을 보내지 않고 링크로만 표시한다.
+        const image=str[i]==='!' && str[i+1]==='[';
+        const bracket=str[i]==='[' || image;
+        if(bracket){
+          const start=i+(image?2:1),endLabel=str.indexOf(']',start);
+          if(endLabel!==-1 && str[endLabel+1]==='('){
+            const endUrl=str.indexOf(')',endLabel+2);
+            if(endUrl!==-1){
+              const label=str.slice(start,endLabel),rawUrl=str.slice(endLabel+2,endUrl);
+              const href=safeLink(rawUrl);
+              if(href){
+                const content=inline(label,depth+1);
+                out+='<a href="'+esc(href)+'" target="_blank" rel="noopener noreferrer">'+(image?'▧ ':'')+content+'</a>';
+              }else out+=esc(str.slice(i,endUrl+1));
+              i=endUrl+1;continue;
+            }
+          }
+        }
+        let formatted=false;
+        for(const [mark,tag] of [['***','strong-em'],['___','strong-em'],['**','strong'],['__','strong'],['~~','del'],['*','em'],['_','em']]){
+          if(!str.startsWith(mark,i))continue;
+          if((mark==='_'||mark==='__'||mark==='___')&&i>0&&/[\p{L}\p{N}]/u.test(str[i-1]))continue;
+          const end=closingMarker(str,mark,i+mark.length);
+          if(end<=i+mark.length)continue;
+          const middle=inline(str.slice(i+mark.length,end),depth+1);
+          out+=tag==='strong-em'?'<strong><em>'+middle+'</em></strong>':'<'+tag+'>'+middle+'</'+tag+'>';
+          i=end+mark.length;formatted=true;break;
+        }
+        if(formatted)continue;
+        if(str[i]==='\n'){out+='<br>';i++;continue;}
+        out+=esc(str[i]);i++;
+      }
+      return out;
+    };
+    const listMatch=line=>/^( {0,12})([-+*]|\d+[.)])[ \t]+(.*)$/.exec(line);
+    const isRule=line=>/^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(line.trimEnd());
+    const fenceMatch=line=>/^ {0,3}(`{3,}|~{3,})[^\n]*$/.exec(line);
+    const quoteMatch=line=>/^ {0,3}>[ \t]?/.exec(line);
+    const headingMatch=line=>/^ {0,3}(#{1,6})[ \t]+(.+?)\s*#*\s*$/.exec(line);
+    const tableParts=line=>{
+      let parts=[],current='',code=false;
+      const v=line.trim().replace(/^\|/,'').replace(/\|$/,'');
+      for(let i=0;i<v.length;i++){
+        if(v[i]==='\\'&&v[i+1]==='|'){current+='|';i++;continue;}
+        if(v[i]==='`')code=!code;
+        if(v[i]==='|'&&!code){parts.push(current.trim());current='';}
+        else current+=v[i];
+      }
+      parts.push(current.trim());return parts;
+    };
+    const isSeparator=line=>{
+      const v=tableParts(line);
+      return v.length>0&&v.every(x=>/^:?-{3,}:?$/.test(x.trim()));
+    };
+    const isStart=(line,next)=>!!(fenceMatch(line)||headingMatch(line)||isRule(line)||quoteMatch(line)||listMatch(line)||(next!==undefined&&line.includes('|')&&isSeparator(next)));
+    const blocks=(lines,depth=0)=>{
+      if(depth>10)return '<p>'+inline(lines.join('\n'))+'</p>';
+      let out='',i=0;
+      while(i<lines.length){
+        const line=lines[i];
+        if(!line.trim()){i++;continue;}
+        const fence=fenceMatch(line);
+        if(fence){
+          const marker=fence[1],code=[];
+          i++;
+          while(i<lines.length && !new RegExp('^ {0,3}'+(marker[0]==='`'?'`':'~')+'{'+marker.length+',}[ \\t]*$').test(lines[i]))code.push(lines[i++]);
+          if(i<lines.length)i++;
+          out+='<pre><code>'+esc(code.join('\n'))+'</code></pre>';continue;
+        }
+        if(isRule(line)){out+='<hr>';i++;continue;}
+        const heading=headingMatch(line);
+        if(heading){const n=heading[1].length;out+='<h'+n+'>'+inline(heading[2])+'</h'+n+'>';i++;continue;}
+        if(quoteMatch(line)){
+          const quoted=[];
+          while(i<lines.length){
+            const m=quoteMatch(lines[i]);
+            if(m){quoted.push(lines[i].slice(m[0].length));i++;continue;}
+            if(!lines[i].trim()){quoted.push('');i++;if(i<lines.length && quoteMatch(lines[i]))continue;}
+            break;
+          }
+          out+='<blockquote>'+blocks(quoted,depth+1)+'</blockquote>';continue;
+        }
+        const lm=listMatch(line);
+        if(lm){
+          const indent=lm[1].length,ordered=/\d/.test(lm[2][0]);
+          const tag=ordered?'ol':'ul';
+          const listStart=ordered?' start="'+integer(lm[2].match(/^\d+/)?.[0],1)+'"':'';
+          let contents='';
+          while(i<lines.length){
+            const match=listMatch(lines[i]);
+            if(!match||match[1].length!==indent||(/\d/.test(match[2][0]))!==ordered)break;
+            i++;
+            let item=match[3],extra=[];
+            while(i<lines.length){
+              if(!lines[i].trim()){
+                if(i+1<lines.length && /^\s+\S/.test(lines[i+1]) && lines[i+1].match(/^ */)[0].length>indent){extra.push('');i++;continue;}
+                break;
+              }
+              const nextList=listMatch(lines[i]);
+              if(nextList && nextList[1].length<=indent)break;
+              const spaces=(lines[i].match(/^ */)||[''])[0].length;
+              if(spaces<=indent)break;
+              extra.push(lines[i].slice(Math.min(spaces,indent+2)));i++;
+            }
+            const check=/^\[([ xX])\][ \t]+/.exec(item);
+            if(check)item=item.slice(check[0].length);
+            const checkHtml=check?'<input type="checkbox" disabled'+(check[1].toLowerCase()==='x'?' checked':'')+'> ':'';
+            contents+='<li>'+checkHtml+inline(item)+(extra.length?blocks(extra,depth+1):'')+'</li>';
+          }
+          out+='<'+tag+listStart+'>'+contents+'</'+tag+'>';continue;
+        }
+        if(i+1<lines.length && line.includes('|') && isSeparator(lines[i+1])){
+          const heads=tableParts(line),align=tableParts(lines[i+1]);
+          const cell=(txt,idx,head)=>{
+            const a=align[idx]||'';
+            const alignment=a.startsWith(':')&&a.endsWith(':')?'center':a.endsWith(':')?'right':'';
+            const attr=alignment?' style="text-align:'+alignment+'"':'';
+            return '<'+(head?'th':'td')+attr+'>'+inline(txt)+'</'+(head?'th':'td')+'>';
+          };
+          out+='<div class="free-md-table-wrap"><table><thead><tr>'+heads.map((h,j)=>cell(h,j,true)).join('')+'</tr></thead><tbody>';
+          i+=2;
+          while(i<lines.length && lines[i].trim() && lines[i].includes('|')){
+            const parts=tableParts(lines[i]);
+            out+='<tr>'+heads.map((_,j)=>cell(parts[j]||'',j,false)).join('')+'</tr>';
+            i++;
+          }
+          out+='</tbody></table></div>';continue;
+        }
+        const paragraph=[line];i++;
+        while(i<lines.length && lines[i].trim() && !isStart(lines[i],lines[i+1]))paragraph.push(lines[i++]);
+        out+='<p>'+inline(paragraph.join('\n'))+'</p>';
+      }
+      return out;
+    };
+    return blocks(rows);
+  }
+
   function freePreview(){
     const r=currentRecord();
     if(!r)return `<div class="preview"><div class="empty"><b>생성 결과가 없어</b><p>왼쪽에서 프롬프트를 작성하고 생성해 줘.</p></div></div>`;
-    return `<div class="preview free-preview">${titleline(r.payload?.title||'자유 생성',`<span class="pill">${fmtDate(r.createdAt)}${usageSummary(r)}</span>`)}<article class="free-output-text">${textFull(r.payload?.body||'')}</article></div>`;
+    return `<div class="preview free-preview">${titleline(r.payload?.title||'자유 생성',`<span class="pill">${fmtDate(r.createdAt)}${usageSummary(r)}</span>`)}<article class="free-output-text free-markdown">${renderFreeMarkdown(r.payload?.body||'')}</article></div>`;
   }
   function freePage(){
     const d=state.settings.freeDraft,noRecord=!currentRecord();
