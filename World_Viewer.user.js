@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.27
+// @version      0.2.28
 // @description  RP 대화 기반 가상 기록 열람실 · 콘텐츠별 테마 · 단체 채팅 · 방 공통 프롬프트 프리셋
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.27';
+  const VERSION = '0.2.28';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -33,6 +33,7 @@
     { key: 'live', label: '실시간톡', icon: '📺', person: false },
     { key: 'groupchat', label: '단톡', icon: '💬', person: true },
     { key: 'x', label: '𝕏+', icon: '𝕏', person: false },
+    { key: 'free', label: '자유 생성', icon: '✎', person: false },
   ];
   const THEMES = {
     phone:[
@@ -100,6 +101,7 @@
   const KEY_API = 'prwv:gemini-key:v1';
   const KEY_BUTTON = 'prwv:floating-position:v2';
   const KEY_PRESETS = 'prwv:perkind-presets:global:v1';
+  const KEY_FREE_PRESETS = 'prwv:free-presets:global:v1';
   const DEFAULT_KRW_PER_USD = 1330; // 수동 환산용 초기값. 시세가 아니며 설정에서 수정 가능.
   // 유료 Standard 기준: USD / 100만 토큰. 사용자 모델 선택에 맞춰 자동 계산. 가격은 2026-10-20 확인.
   const PRICES = {
@@ -195,12 +197,34 @@
   const approxTokens = t => Math.max(1,Math.ceil(String(t||'').length/2.2));
 
 
+  const FREE_CAPS=[
+    [2048,'짧게 · 최대 2,048토큰'],[4096,'보통 · 최대 4,096토큰'],
+    [8192,'길게 · 최대 8,192토큰'],[16384,'아주 길게 · 최대 16,384토큰'],
+    [32768,'대량 · 최대 32,768토큰'],
+  ];
+  const FREE_REF_KEYS=['rp','world','character','user','story'];
+  const defaultFreeDraft=()=>({title:'',prompt:'',outputCap:8192,
+    refs:{rp:true,world:true,character:true,user:false,story:true},character:'',
+    rangeMode:'recent',recentTurns:30,rangeFrom:1,rangeTo:30});
+  function normalizeFreeDraft(raw){
+    const d=defaultFreeDraft(),v=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{};
+    return {title:String(v.title??'').slice(0,120),prompt:String(v.prompt??'').slice(0,120000),
+      outputCap:FREE_CAPS.some(x=>x[0]===Number(v.outputCap))?Number(v.outputCap):8192,
+      refs:Object.fromEntries(FREE_REF_KEYS.map(k=>[k,typeof v.refs?.[k]==='boolean'?v.refs[k]:d.refs[k]])),
+      character:String(v.character??'').slice(0,60),rangeMode:v.rangeMode==='range'?'range':'recent',
+      recentTurns:clamp(v.recentTurns??30,1,2000),rangeFrom:clamp(v.rangeFrom??1,1,2000),rangeTo:clamp(v.rangeTo??30,1,2000)};
+  }
+  function sanitizeFreePresets(raw){
+    return arr(raw).filter(p=>p&&typeof p.name==='string'&&typeof p.prompt==='string')
+      .slice(0,300).map(p=>({id:String(p.id||uid()).slice(0,100),name:p.name.trim().slice(0,70),
+        title:String(p.title||'').slice(0,120),prompt:p.prompt.slice(0,120000)})).filter(p=>p.name);
+  }
   function defaultSettings() {
     const common = {};
     for (const k of ['world', 'character', 'relationship']) common[k] = { enabled: false, value: '' };
     const perKind = {};
     for (const k of TYPES) perKind[k.key] = { enabled: false, value: '' };
-    return { model: 'gemini-2.5-flash', thinkingLevel:'auto', outputSize:'standard', common, perKind, themes: defaultThemes(), groupchatBasePrompt: GROUPCHAT_BASE_PROMPT, characterProfiles: {}, userProfile: '', storyNotes: '', characters: [], selectedPerson: '', rangeMode: 'recent', recentTurns: 30, rangeFrom: 1, rangeTo: 30, userName: '', krwPerUsd: DEFAULT_KRW_PER_USD, lastTab: 'phone' };
+    return { model: 'gemini-2.5-flash', thinkingLevel:'auto', outputSize:'standard', common, perKind, themes: defaultThemes(), groupchatBasePrompt: GROUPCHAT_BASE_PROMPT, freeDraft:defaultFreeDraft(), characterProfiles: {}, userProfile: '', storyNotes: '', characters: [], selectedPerson: '', rangeMode: 'recent', recentTurns: 30, rangeFrom: 1, rangeTo: 30, userName: '', krwPerUsd: DEFAULT_KRW_PER_USD, lastTab: 'phone' };
   }
   function normalizeSettings(x) {
     const d = defaultSettings(), s = x && typeof x === 'object' ? x : {};
@@ -219,7 +243,7 @@
       if(!storyNotes.includes(migrated))storyNotes=[storyNotes,migrated].filter(Boolean).join('\n\n').slice(0,60000);
       common[key]={enabled:false,value:''};
     }
-    return { ...d, ...s, common, perKind: blocks('perKind'), themes, characterProfiles, userProfile: String(s.userProfile||'').slice(0,30000), storyNotes, groupchatBasePrompt: typeof s.groupchatBasePrompt==='string' && s.groupchatBasePrompt!==LEGACY_GROUPCHAT_BASE_PROMPT ? s.groupchatBasePrompt.slice(0,300000) : d.groupchatBasePrompt, characters: arr(s.characters).filter(x => typeof x === 'string').slice(0, 80), selectedPerson: String(s.selectedPerson || ''), model: String(s.model || d.model), thinkingLevel:validThinking(String(s.model||d.model),String(s.thinkingLevel||'auto')), outputSize:outputSize(s.outputSize), rangeMode: s.rangeMode === 'range' ? 'range' : 'recent', recentTurns: clamp(s.recentTurns ?? 30, 1, 2000), rangeFrom: Math.max(1, integer(s.rangeFrom, 1)), rangeTo: Math.max(1, integer(s.rangeTo, 30)), userName: String(s.userName||'').trim().slice(0,100), krwPerUsd: clamp(s.krwPerUsd??DEFAULT_KRW_PER_USD, 1, 100000) };
+    return { ...d, ...s, common, perKind: blocks('perKind'), themes, freeDraft:normalizeFreeDraft(s.freeDraft), characterProfiles, userProfile: String(s.userProfile||'').slice(0,30000), storyNotes, groupchatBasePrompt: typeof s.groupchatBasePrompt==='string' && s.groupchatBasePrompt!==LEGACY_GROUPCHAT_BASE_PROMPT ? s.groupchatBasePrompt.slice(0,300000) : d.groupchatBasePrompt, characters: arr(s.characters).filter(x => typeof x === 'string').slice(0, 80), selectedPerson: String(s.selectedPerson || ''), model: String(s.model || d.model), thinkingLevel:validThinking(String(s.model||d.model),String(s.thinkingLevel||'auto')), outputSize:outputSize(s.outputSize), rangeMode: s.rangeMode === 'range' ? 'range' : 'recent', recentTurns: clamp(s.recentTurns ?? 30, 1, 2000), rangeFrom: Math.max(1, integer(s.rangeFrom, 1)), rangeTo: Math.max(1, integer(s.rangeTo, 30)), userName: String(s.userName||'').trim().slice(0,100), krwPerUsd: clamp(s.krwPerUsd??DEFAULT_KRW_PER_USD, 1, 100000) };
   }
   const getGM = async (k, d) => typeof GM_getValue === 'function' ? GM_getValue(k, d) : (localStorage.getItem(k) ?? d);
   const setGM = async (k, v) => typeof GM_setValue === 'function' ? GM_setValue(k, v) : localStorage.setItem(k, v);
@@ -456,6 +480,30 @@
       if(a>=0&&z>a){try{return {payload:JSON.parse(cleaned.slice(a,z+1)),usage:res.usageMetadata||{},attempts:attempt};}catch(_){}}
       const e=new Error('Gemini 응답 JSON을 해석할 수 없습니다 ('+(choice?.finishReason||'파싱 실패')+'). 과금됐을 수 있어 자동 재요청하지 않아.');e.apiUsage=res.usageMetadata||{};e.requestAttempts=attempt;throw e;
     }
+  }
+
+  // 자유 생성 전용: 기본 콘텐츠 JSON 강제 옵션이나 세계관 지침을 넣지 않는다.
+  async function geminiFreeText(userContent,model,apiKey,outputCap,thinking='auto',onRetry=()=>{}){
+    const generationConfig={temperature:0.85,maxOutputTokens:Math.max(1024,Math.min(32768,outputCap))};
+    const reasoning=thinkingConfig(model,thinking);
+    if(reasoning)generationConfig.thinkingConfig=reasoning;
+    const body={contents:[{role:'user',parts:[{text:userContent}]}],generationConfig};
+    const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    let res,attempt=0;
+    while(attempt<GEMINI_MAX_ATTEMPTS){
+      attempt++;
+      try{res=await xhr('POST',url,body,{'x-goog-api-key':apiKey,'Content-Type':'application/json'},240000);break;}
+      catch(e){
+        if(!isSafeRetryError(e)||attempt>=GEMINI_MAX_ATTEMPTS){e.attempts=attempt;throw e;}
+        const delay=Math.min(8000,1000*2**(attempt-1));
+        onRetry(attempt+1,GEMINI_MAX_ATTEMPTS,delay);
+        await new Promise(resolve=>setTimeout(resolve,delay));
+      }
+    }
+    const choice=res?.candidates?.[0];
+    const result=arr(choice?.content?.parts).filter(p=>!p.thought).map(p=>p.text||'').join('').trim();
+    if(!result)throw new Error('Gemini가 빈 텍스트를 반환했어 ('+(choice?.finishReason||'응답 없음')+'). 자동 재요청하지 않아.');
+    return {text:result,usage:res.usageMetadata||{},attempts:attempt};
   }
 
   async function fetchModels(apiKey) {
@@ -2062,9 +2110,35 @@
   .tablet-reader-theme { display:none !important; }
 }
 
+
+/* v0.2.28: isolated, plain-text free generation. */
+.free-page{min-width:0}
+.free-page .reader-controls-heading>h3{max-width:none;font-size:15px}
+.free-form{min-width:0}
+.free-form textarea[data-field="freePrompt"]{width:100%;box-sizing:border-box;resize:vertical;min-height:180px;line-height:1.65;font:inherit;font-size:13px;padding:11px 12px;background:#111827;color:#e8efff;border:1px solid #526079;border-radius:10px}
+.free-form textarea[data-field="freePrompt"]:focus{outline:2px solid #8e82e8;outline-offset:1px}
+.free-form input,.free-form select{min-width:0;max-width:100%}
+.free-ref-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.free-ref-head b{font-size:13px}
+.free-ref-head small{font-size:11px;color:#9caac2}
+.free-ref-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.free-ref-item{display:flex;align-items:center;gap:7px;border:1px solid #384358;border-radius:9px;background:#1c2637;padding:9px 8px;font-size:12px;cursor:pointer;min-width:0}
+.free-ref-item input{width:15px;height:15px;flex:none;margin:0;accent-color:#9187e8}
+.free-range{border:1px solid #39475c;border-radius:10px;padding:10px;display:grid;gap:10px}
+.free-range-pair>*{flex:1 1 95px;min-width:0}
+.free-estimate{border:1px solid #3b4e63;border-radius:11px;padding:11px;background:#141e2d;display:grid;gap:4px;font-size:12px}
+.free-estimate b{font-size:16px;color:#efc37f}
+.free-estimate small{color:#9cb0cd;font-size:10px}
+.free-preview .preview-title{align-items:flex-start;flex-wrap:wrap}
+.free-output-text{box-sizing:border-box;min-height:280px;padding:clamp(15px,2vw,30px);background:#182233;border:1px solid #334258;border-radius:12px;color:#e7e9f0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85;font-size:clamp(13px,1.08vw,16px);user-select:text}
+.free-layout .stage .preview{min-height:calc(100vh - 155px)}
+.free-export-footer{gap:8px}
+@media(max-width:840px){.free-layout .stage .preview{min-height:0}.free-output-text{min-height:190px;padding:15px}}
+@media(max-width:420px){.free-ref-list{grid-template-columns:1fr}}
+
 `;
 
-  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, profilePerson:'', exporting:false, presets:[], presetName:'', presetSelection:'', helpOpen:false, globalDeleteConfirm:null, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
+  const state = { expandedX:new Set(),newsCategory:'전체',wikiTab:'article', wikiQuery:'', xQuery:'', xFilter:'all', room:'', settings:defaultSettings(), key:'', entries:[], type:'phone', selectedRecord:'', checked:new Set(), open:false, busy:false, status:'', tab:'viewer', view:'home', subIndex:0, subIndex2:0, msg:'', toastTimer:null, initialized:false, focused:false, tabletPane:'viewer', quote:null, modelOptions:MODEL_FALLBACK, profilePerson:'', exporting:false, presets:[], presetName:'', presetSelection:'',freePresets:[],freePresetName:'',freePresetSelection:'', helpOpen:false, globalDeleteConfirm:null, buttonPosition:null, boardQuery:'',pcBrowserQuery:'',pcMailFolder:'inbox',archiveLimit:40,manageLimit:100,lastUsage:null };
   const host = document.createElement('div');
   host.id = 'prwv-root';
   const root = host.attachShadow({ mode:'closed' });
@@ -2092,11 +2166,13 @@
       .slice(0,300).map(p=>({id:String(p.id||uid()).slice(0,100),kind:p.kind,name:p.name.trim().slice(0,70),value:p.value.slice(0,300000),...((p.kind==='groupchat'&&typeof p.basePrompt==='string')?{basePrompt:(p.basePrompt===LEGACY_GROUPCHAT_BASE_PROMPT?GROUPCHAT_BASE_PROMPT:p.basePrompt).slice(0,300000)}:{})})).filter(p=>p.name);
   }
   async function savePresets() { await setGM(KEY_PRESETS, JSON.stringify(state.presets)); }
+  async function saveFreePresets(){await setGM(KEY_FREE_PRESETS,JSON.stringify(state.freePresets));}
+  const selectedFreePreset=()=>state.freePresets.find(p=>p.id===state.freePresetSelection)||null;
   function presetsOf(kind) { return state.presets.filter(p=>p.kind===kind).sort((a,b)=>a.name.localeCompare(b.name,'ko-KR')); }
   function selectedPreset(kind) {return presetsOf(kind).find(p=>p.id===state.presetSelection)||null;}
 
   async function loadRoom(room) {
-    state.room = room; state.selectedRecord = ''; state.checked.clear(); state.view = 'home'; state.tabletPane='viewer'; state.presetSelection=''; state.presetName='';state.profilePerson='';
+    state.room = room; state.selectedRecord = ''; state.checked.clear(); state.view = 'home'; state.tabletPane='viewer'; state.presetSelection=''; state.presetName='';state.profilePerson='';state.freePresetSelection='';state.freePresetName='';
     if (!room) { state.entries=[];state.settings=defaultSettings(); render(); return; }
     try {
       const raw = await getGM(configKey(room), '');
@@ -2110,6 +2186,7 @@
   async function init() {
     try { state.key = String(await getGM(KEY_API, '')); state.buttonPosition=JSON.parse(await getGM(KEY_BUTTON,'null')); updateBadgePosition(); } catch (_) {}
     try {state.presets=sanitizePresets(JSON.parse(await getGM(KEY_PRESETS,'[]')));}catch(e){state.presets=[];}
+    try {state.freePresets=sanitizeFreePresets(JSON.parse(await getGM(KEY_FREE_PRESETS,'[]')));}catch(e){state.freePresets=[];}
     await loadRoom(roomFromURL());
     state.initialized = true;
   }
@@ -2173,7 +2250,7 @@
   }
   function scheduleAutomaticEstimate() {
     clearTimeout(estimateTimer);
-    if(!state.open||state.tab!=='viewer'||!state.room||state.busy)return;
+    if(!state.open||state.tab!=='viewer'||!state.room||state.busy||state.type==='free')return;
     const key=estimateContextKey();
     if(state.quote?.key===key || estimateRunningKey===key)return;
     estimateTimer=setTimeout(async()=>{
@@ -2445,7 +2522,7 @@
       ctx.drawImage(image,0,0,canvas.width,canvas.height);
       const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
       if(!blob)throw new Error('PNG 파일 생성에 실패했어.');
-      const safeName=String(record.person||record.payload?.owner||'세계관').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').slice(0,35);
+      const safeName=String(record.kind==='free'?(record.payload?.title||'자유 생성'):(record.person||record.payload?.owner||'세계관')).replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').slice(0,35);
       const filename=`열람실_${typeOf(record.kind).label}_${safeName}_${new Date(record.createdAt).toISOString().slice(0,10)}.png`;
       const blobUrl=URL.createObjectURL(blob);
       try{const a=document.createElement('a');a.href=blobUrl;a.download=filename;document.body.append(a);a.click();a.remove();}finally{setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);}
@@ -2453,6 +2530,108 @@
     }catch(e){showError(e);}
     finally{temp?.remove();state.exporting=false;button.disabled=false;button.textContent=before;}
   }
+  function freeEstimate(){
+    const d=state.settings.freeDraft,s=state.settings;
+    let length=d.prompt.length;
+    if(d.refs.rp)length+=(d.rangeMode==='recent'?d.recentTurns:Math.max(1,d.rangeTo-d.rangeFrom+1))*450;
+    if(d.refs.world&&s.common.world.enabled)length+=s.common.world.value.length;
+    if(d.refs.character)length+=Object.entries(s.characterProfiles||{}).filter(([n])=>!d.character||n===d.character).reduce((v,[,body])=>v+body.length,0);
+    if(d.refs.user)length+=s.userProfile.length;
+    if(d.refs.story)length+=s.storyNotes.length;
+    const input=Math.ceil(length/2.2)+100,thought=estimateThinkingTokens(s.model,s.thinkingLevel,1);
+    const cost=estimateBill(s.model,input,d.outputCap+thought);
+    return `<div class="free-estimate"><span>예상 입력 약 ${fmtNumber(input)}토큰 · 출력 상한 ${fmtNumber(d.outputCap)}토큰</span><b>${priced(cost,s.krwPerUsd)}</b><small>실제 사용량과 비용은 달라질 수 있어.</small></div>`;
+  }
+  function freeArchiveList(){
+    const items=currentEntries();
+    return `<div class="card"><div class="section-header"><b>보관된 자유 생성 · ${items.length}개</b></div><div class="archive">${items.slice(0,state.archiveLimit).map(r=>`<div class="archive-row ${currentRecord()?.id===r.id?'selected':''}"><button data-act="record" data-id="${esc(r.id)}"><b>${text(r.payload?.title||'자유 생성',85)}</b><small>${fmtDate(r.createdAt)} · ${text(r.rangeLabel,35)}</small></button><button class="button slim ghost" data-act="single-delete" data-id="${esc(r.id)}">삭제</button></div>`).join('')||'<div class="subtle">생성한 글이 없어.</div>'}${items.length>state.archiveLimit?`<button class="button slim" data-act="archive-more">더 보기 (${items.length-state.archiveLimit}개)</button>`:''}</div></div>`;
+  }
+  function freePreview(){
+    const r=currentRecord();
+    if(!r)return `<div class="preview"><div class="empty"><b>생성 결과가 없어</b><p>왼쪽에서 프롬프트를 작성하고 생성해 줘.</p></div></div>`;
+    return `<div class="preview free-preview">${titleline(r.payload?.title||'자유 생성',`<span class="pill">${fmtDate(r.createdAt)}${usageSummary(r)}</span>`)}<article class="free-output-text">${textFull(r.payload?.body||'')}</article></div>`;
+  }
+  function freePage(){
+    const d=state.settings.freeDraft,noRecord=!currentRecord();
+    const tabletControls=state.tabletPane==='controls'||noRecord;
+    const refs=[['rp','RP 대화'],['world','세계관'],['character','캐릭터 정보'],['user','유저 프로필'],['story','중요 서사']];
+    const people=[...new Set([...state.settings.characters,...Object.keys(state.settings.characterProfiles||{})])];
+    return `<div class="free-page"><div class="tablet-view-switch" role="group" aria-label="태블릿 화면 전환"><button class="button slim ${!tabletControls?'primary':''}" data-act="tablet-pane" data-pane="viewer" ${noRecord?'disabled':''}>▣ 결과 열람</button><button class="button slim ${tabletControls?'primary':''}" data-act="tablet-pane" data-pane="controls">⚙ 생성 설정</button></div>
+      <div class="viewer-layout free-layout ${state.focused?'focused':''} ${tabletControls?'tablet-controls':'tablet-reader'} ${noRecord?'no-record':''}">
+        <div class="controls stack"><div class="reader-controls-heading"><h3>✎ 자유 생성</h3></div>
+          <div class="card stack free-form">
+            <label class="field"><span>제목 (선택)</span><input data-field="freeTitle" maxlength="120" value="${esc(d.title)}" placeholder="결과 제목"></label>
+            <label class="field"><span>내 프롬프트</span><textarea data-field="freePrompt" rows="10" maxlength="120000" placeholder="원하는 주제, 문체, 형식, AU 설정 등을 자유롭게 입력">${text(d.prompt,120000)}</textarea></label>
+            <div class="free-ref-head"><b>참고 자료</b><small>선택한 항목만 포함</small></div>
+            <div class="free-ref-list">${refs.map(([id,label])=>`<label class="free-ref-item"><input type="checkbox" data-field="freeRef" data-ref="${id}" ${d.refs[id]?'checked':''}> ${label}</label>`).join('')}</div>
+            ${d.refs.character?`<label class="field"><span>참고할 캐릭터</span><select data-field="freeCharacter"><option value="">등록된 캐릭터 전체</option>${people.map(n=>`<option value="${esc(n)}" ${d.character===n?'selected':''}>${text(n,60)}</option>`).join('')}</select></label>`:''}
+            ${d.refs.rp?`<div class="free-range"><div class="row"><label class="toggle"><input type="radio" name="free-range" data-field="freeRangeMode" value="recent" ${d.rangeMode==='recent'?'checked':''}> 최근 N턴</label><label class="toggle"><input type="radio" name="free-range" data-field="freeRangeMode" value="range" ${d.rangeMode==='range'?'checked':''}> 시작~끝 턴</label></div>${d.rangeMode==='recent'?`<label class="field"><span>읽을 최근 RP 턴 수</span><input type="number" data-field="freeRecentTurns" min="1" max="2000" value="${d.recentTurns}"></label>`:`<div class="row free-range-pair"><label class="field"><span>시작 턴</span><input type="number" data-field="freeRangeFrom" min="1" max="2000" value="${d.rangeFrom}"></label><label class="field"><span>끝 턴</span><input type="number" data-field="freeRangeTo" min="1" max="2000" value="${d.rangeTo}"></label></div>`}</div>`:''}
+            <label class="field"><span>출력 길이 (상한)</span><select data-field="freeOutputCap">${FREE_CAPS.map(([n,label])=>`<option value="${n}" ${d.outputCap===n?'selected':''}>${label}</option>`).join('')}</select></label>
+            ${freeEstimate()}<button class="button primary" data-act="free-generate" ${state.busy?'disabled':''}>✦ 텍스트 생성하고 기록에 저장</button>
+            ${state.busy?`<div class="status"><span class="spinning">◌</span><span data-status>${text(state.status,180)}</span></div>`:''}</div>
+          <div class="card stack"><h4>프롬프트 프리셋</h4>
+            <label class="field"><span>저장된 프리셋 (모든 방 공용)</span><select data-field="freePresetSelect"><option value="">선택</option>${[...state.freePresets].sort((a,b)=>a.name.localeCompare(b.name,'ko-KR')).map(p=>`<option value="${esc(p.id)}" ${p.id===state.freePresetSelection?'selected':''}>${text(p.name,80)}</option>`).join('')}</select></label>
+            <label class="field"><span>프리셋 이름</span><input data-field="freePresetName" maxlength="70" value="${esc(state.freePresetName)}" placeholder="예: 현대 AU"></label>
+            <div class="row"><button class="button slim" data-act="free-preset-load" ${!selectedFreePreset()?'disabled':''}>불러오기</button><button class="button slim primary" data-act="free-preset-save">현재 프롬프트 저장</button><button class="button slim ghost" data-act="free-preset-delete" ${!selectedFreePreset()?'disabled':''}>삭제</button></div>
+            <p class="subtle">제목과 프롬프트만 저장. 참고 자료·RP 범위는 현재 방의 선택값 유지.</p></div>
+          ${freeArchiveList()}
+        </div>
+        <div class="stage"><button type="button" class="preview-focus-btn" data-act="focus" aria-label="${state.focused?'설정 다시 표시':'결과 크게 보기'}" title="${state.focused?'설정 다시 표시':'결과 크게 보기'}">${state.focused?'↙':'⛶'}</button>${freePreview()}</div></div>
+      <div class="viewer-export-footer free-export-footer"><button class="button slim ghost" data-act="free-copy" ${noRecord?'disabled':''}>복사</button><button class="button slim ghost" data-act="free-txt" ${noRecord?'disabled':''}>TXT 저장</button><button class="button slim ghost" data-act="export-png" ${noRecord?'disabled':''}>PNG 저장</button></div></div>`;
+  }
+  function freePromptWithRefs(prompt,refs){
+    const chunks=[];
+    if(refs.rp?.content)chunks.push(`[RP 대화 · ${refs.rp.label}]\n${refs.rp.content}`);
+    if(String(refs.world||'').trim())chunks.push(`[세계관]\n${refs.world}`);
+    for(const [name,body] of refs.characters||[])chunks.push(`[캐릭터 정보 · ${name}]\n${body}`);
+    if(String(refs.user||'').trim())chunks.push(`[유저 캐릭터 프로필]\n${refs.user}`);
+    if(String(refs.story||'').trim())chunks.push(`[중요 서사]\n${refs.story}`);
+    return chunks.length?`[내 프롬프트]\n${prompt}\n\n[선택한 참고 자료]\n${chunks.join('\n\n')}\n\n내 프롬프트가 참고 자료와 충돌하면 내 프롬프트의 AU·변형 설정을 우선한다.`:prompt;
+  }
+  async function generateFree(){
+    if(state.busy)return;
+    if(!state.room)return flash('먼저 RP 채팅방을 열어 줘.');
+    if(!state.key.trim()){state.tab='settings';render();return flash('Gemini API 키를 먼저 설정해 줘.');}
+    const d=normalizeFreeDraft(state.settings.freeDraft);
+    if(!d.prompt.trim())return flash('자유 프롬프트를 먼저 입력해 줘.');
+    const s=structuredClone(state.settings),room=state.room,apiKey=state.key.trim();
+    setBusy(true,'자유 생성 준비 중');
+    try{
+      let rp=null;
+      if(d.refs.rp)rp=await readConversation(room,d.rangeMode,d.rangeFrom,d.rangeMode==='recent'?d.recentTurns:d.rangeTo,setStatus,s.userName);
+      const content=freePromptWithRefs(d.prompt,{
+        rp:d.refs.rp?rp:null,world:d.refs.world&&s.common.world.enabled?s.common.world.value:'',
+        characters:d.refs.character?Object.entries(s.characterProfiles||{}).filter(([name,body])=>(!d.character||name===d.character)&&String(body||'').trim()):[],
+        user:d.refs.user?s.userProfile:'',story:d.refs.story?s.storyNotes:''});
+      setStatus('자유 텍스트 생성 중');
+      const generated=await geminiFreeText(content,s.model,apiKey,d.outputCap,s.thinkingLevel,(next,total,delay)=>setStatus(`HTTP 500 재시도 ${next}/${total} · ${delay/1000}초 후`));
+      const usage=generated.usage||{};
+      const billUsd=integer(usage.totalTokenCount)>0?estimateBill(s.model,integer(usage.promptTokenCount),integer(usage.candidatesTokenCount)+integer(usage.thoughtsTokenCount)):null;
+      const title=d.title.trim()||d.prompt.trim().split('\n')[0].slice(0,55)||'자유 생성';
+      const record={id:uid(),room,kind:'free',person:'',createdAt:Date.now(),rangeLabel:rp?.label||'RP 미참고',
+        payload:{title,body:generated.text,prompt:d.prompt,refs:d.refs},model:s.model,thinkingLevel:s.thinkingLevel,usage,billUsd,requestCount:1,warnings:[]};
+      await putRecord(record);
+      if(state.room===room){state.entries.unshift(record);if(state.type==='free'){state.selectedRecord=record.id;state.tabletPane='viewer';}}
+      render();flash('자유 생성 결과를 기록에 저장했어.',7000);
+    }catch(e){showError(e);}finally{setBusy(false);}
+  }
+  async function copyFreeText(){
+    const body=String(currentRecord()?.payload?.body||'');
+    if(!body)return flash('복사할 텍스트가 없어.');
+    try{
+      if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(body);
+      else{const area=document.createElement('textarea');area.value=body;area.style.cssText='position:fixed;left:-99999px;top:0;';document.body.append(area);area.select();try{if(!document.execCommand('copy'))throw Error('복사 실패');}finally{area.remove();}}
+      flash('텍스트를 복사했어.');
+    }catch(e){showError(new Error('클립보드에 복사하지 못했어. 브라우저 권한을 확인해 줘.'));}
+  }
+  function saveFreeTxt(){
+    const r=currentRecord();if(!r)return;
+    const name=String(r.payload?.title||'자유 생성').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').slice(0,65);
+    const blob=new Blob([String(r.payload?.body||'')],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob);
+    try{const a=document.createElement('a');a.href=url;a.download=`${name||'자유 생성'}_${new Date(r.createdAt).toISOString().slice(0,10)}.txt`;document.body.append(a);a.click();a.remove();flash('TXT 저장을 시작했어.');}
+    finally{setTimeout(()=>URL.revokeObjectURL(url),30000);}
+  }
+
   function viewerPage() {
     // Tablet: choose between the reader and generation/archive controls without
     // forcing the reader to sit below several screens of settings.
@@ -2676,8 +2855,9 @@
      <div class="card stack"><h4>추론 강도</h4><label class="field"><span>선택한 모델의 사고 수준</span><select data-field="thinkingLevel">${thinkingOptions(s.model).map(v=>`<option value="${v}" ${v===validThinking(s.model,s.thinkingLevel)?'selected':''}>${text(THINKING_LABELS[v])}</option>`).join('')}</select></label><p class="subtle">모델에 따라 선택 가능한 강도가 달라. Gemini 3/4는 사고 수준, 2.5는 사고 예산을 적용해. 강도가 높으면 추론 토큰 비용이 늘 수 있어. 기본값은 모델 자동 설정.</p><p class="subtle">자동 재시도: Google이 비과금이라고 명시한 HTTP 500 오류만, 최초 요청 포함 최대 5회. 정상 응답 이후 결과 부족·파싱 실패·429·503·시간 초과는 자동 재시도하지 않아.</p></div>
      <div class="card stack"><h4>유저 캐릭터</h4><label class="field"><span>유저 캐릭터 이름 (필수)</span><input data-field="userName" type="text" maxlength="100" placeholder="RP에서 사용하는 유저 캐릭터의 이름" value="${esc(s.userName)}"></label><p class="subtle">이름으로 작성자를 식별해. 유저 캐릭터가 직접 작성한 기록은 생성하지 않아.</p></div>
      <div class="card stack"><label class="field"><span>원화 환산 환율 (1 USD = 몇 원)</span><input data-field="krwPerUsd" type="number" min="1" max="100000" step="1" value="${s.krwPerUsd}"></label><p class="subtle">현재 설정 환율로만 환산. 실시간 환율 조회나 추가 Gemini 호출은 하지 않아.</p></div>
-     <div class="card"><h4>콘텐츠별 개별 프롬프트</h4><div class="chips">${TYPES.map(t=>`<button data-act="settings-kind" data-kind="${t.key}" class="chip ${state.type===t.key?'active':''}">${t.icon} ${t.label}</button>`).join('')}</div></div>
+     <div class="card"><h4>콘텐츠별 개별 프롬프트</h4><div class="chips">${TYPES.filter(t=>t.key!=='free').map(t=>`<button data-act="settings-kind" data-kind="${t.key}" class="chip ${state.type===t.key?'active':''}">${t.icon} ${t.label}</button>`).join('')}</div></div>
      ${state.type==='groupchat'?`<div class="card stack"><h4>단톡 기본 생성 프롬프트</h4><textarea data-field="groupchatBasePrompt" rows="5" aria-label="단톡 기본 생성 프롬프트">${text(s.groupchatBasePrompt,300000)}</textarea><p class="subtle">이 내용은 단톡 생성 요청에 기본 지침으로 포함돼. 비워 두면 기본 문구로 복구돼. 이 아래의 개별 추가 지시와 중복 전송하지 않아.</p></div>`:''}
+     ${state.type==='free'?'<div class="card"><p class="subtle">자유 생성 프롬프트와 프리셋은 왼쪽 「자유 생성」 메뉴에서 관리해.</p></div>':`
      ${promptBlock('perKind',state.type,`${typeOf(state.type).icon} ${typeOf(state.type).label} 전용 추가 지시`,'이 콘텐츠에서 보고 싶은 내용의 분위기, 특징, 분량, 특정 기록 등에 관한 추가 지시')}
      <div class="card stack preset-box"><h4>📌 ${typeOf(state.type).label} 프롬프트 프리셋</h4>
        <div class="preset-grid"><label class="field"><span>저장된 프리셋</span><select data-field="presetSelect"><option value="">선택</option>${presetsOf(state.type).map(p=>`<option value="${esc(p.id)}" ${state.presetSelection===p.id?'selected':''}>${text(p.name,90)}</option>`).join('')}</select></label>
@@ -2685,6 +2865,7 @@
        <div class="row"><button class="button slim" data-act="preset-load" ${!selectedPreset(state.type)?'disabled':''}>불러오기</button><button class="button slim primary" data-act="preset-save">현재 지시 저장</button><button class="button slim ghost" data-act="preset-delete" ${!selectedPreset(state.type)?'disabled':''}>프리셋 삭제</button></div>
        <p class="subtle">프리셋은 모든 RP방에서 공통 사용. 단톡 프리셋에는 기본 생성 프롬프트도 함께 저장돼. 다른 방의 설정은 변경하지 않아.</p>
      </div>
+     `}
      <div class="row"><button data-act="save" class="button primary">설정 저장</button><span class="subtle">텍스트 입력은 자동 저장되며, 저장 버튼으로 즉시 확정 가능.</span></div>
     </div>`;
   }
@@ -2697,6 +2878,10 @@
       `<div class="global-delete-confirm" role="group" aria-label="모든 방의 기록 삭제 확인"><b class="error">${fmtNumber(state.globalDeleteConfirm)}개 기록을 정말 영구 삭제할까?</b><p>복구 불가능 · 다른 확프 및 실제 채팅에는 영향 없음</p><div class="row"><button class="button ghost" data-act="cancel-global">취소</button><button class="button danger" data-act="confirm-global" ${state.busy?'disabled':''}>확인하고 전체 삭제</button></div></div>`}</div></div>`;
   }
   function helpPanel() {
+    if(state.type==='free')return `<aside class="help-popover" aria-label="자유 생성 도움말"><div class="help-title"><b>ⓘ 자유 생성 도움말</b><button class="button slim ghost" data-act="toggle-help">✕</button></div>
+      <section><b>프롬프트</b><p>입력한 프롬프트를 그대로 전달하고 일반 텍스트로 생성해. 기존 콘텐츠의 JSON 규칙과 공통 생성 지침은 적용하지 않아.</p></section>
+      <section><b>참고 자료</b><p>체크한 자료만 포함하며, RP 대화를 해제하면 대화 기록을 조회하지 않아. 기존 세계관을 바꿔 쓰는 AU는 입력 프롬프트를 우선해.</p></section>
+      <section><b>요금·보관</b><p>Gemini API 한 번 호출을 기본으로 하고 HTTP 500 오류에는 재시도할 수 있어. 결과는 해당 RP방의 기록으로 저장돼.</p></section></aside>`;
     const s=state.settings, model=s.model;
     const count=requestEstimateCount(state.type,outputSize(s.outputSize));
     const p=PRICES[model];
@@ -2717,12 +2902,15 @@
     badge.textContent=state.busy?'◌ 생성 중 · 열람실':'✦ 세계 열람실';
     if (!state.open) { panel.hidden=true; return; }
     const scroller=panel.querySelector('.main'); const scrollPos=scroller?.scrollTop || 0;
+    const controlScroll=panel.querySelector('.viewer-layout > .controls')?.scrollTop || 0;
     panel.hidden=false;
     panel.innerHTML=`<div class="header"><div><h2>✦ 가상세계 열람실 <small>v${VERSION}</small></h2></div><div class="head-actions"><button class="icon-btn help-trigger" data-act="toggle-help" aria-expanded="${state.helpOpen}" title="생성량·요금·기록 정책 설명">? 도움말</button><button class="icon-btn" data-act="close" title="접고 캐챗 계속하기">─ 접기</button></div></div>
-      <div class="shell">${sidebar()}<main class="main">${!state.room?`<div class="empty"><b>현재 RP 채팅방을 열어 줘.</b><p>크랙의 개별 채팅방에서 사용할 수 있어.</p></div>`:state.tab==='settings'?settingsPage():state.tab==='manage'?managePage():state.tab==='lore'?lorePage():viewerPage()}</main></div>`;
+      <div class="shell">${sidebar()}<main class="main">${!state.room?`<div class="empty"><b>현재 RP 채팅방을 열어 줘.</b><p>크랙의 개별 채팅방에서 사용할 수 있어.</p></div>`:state.tab==='settings'?settingsPage():state.tab==='manage'?managePage():state.tab==='lore'?lorePage():state.type==='free'?freePage():viewerPage()}</main></div>`;
     if(state.helpOpen)panel.insertAdjacentHTML('beforeend',helpPanel());
     panel.append(toastBox);
     panel.querySelector('.main').scrollTop=scrollPos;
+    const nextControls=panel.querySelector('.viewer-layout > .controls');
+    if(nextControls && state.type==='free') nextControls.scrollTop=controlScroll;
     scheduleAutomaticEstimate();
   }
   async function refreshModels() {
@@ -2804,6 +2992,7 @@
     return removed;
   }
   async function generate() {
+    if(state.type==='free')return generateFree();
     if (state.busy) return;
     if (!state.room) return flash('RP 채팅방을 열어 줘.');
     if (!state.key.trim()) { state.tab='settings'; render(); return flash('먼저 Gemini API 키를 설정해 줘.'); }
@@ -2877,7 +3066,31 @@
     try {
       if (act==='close') {state.open=false;state.helpOpen=false;render();return;}
       if (act==='toggle-help') {state.helpOpen=!state.helpOpen;render();return;}
-      if (act==='kind'||act==='settings-kind') {state.focused=false;state.tabletPane='viewer';state.quote=null;state.boardQuery=''; state.wikiQuery=''; state.wikiTab='article';state.xQuery='';state.xFilter='all';state.expandedX.clear();state.newsCategory='전체';state.type=btn.dataset.kind;state.view='home';state.selectedRecord='';state.subIndex=0;state.settings.lastTab=state.type;state.presetSelection='';state.presetName='';if(act==='kind')state.tab='viewer';await saveSettings();render();return; }
+      if(act==='free-generate'){await generateFree();return;}
+      if(act==='free-copy'){await copyFreeText();return;}
+      if(act==='free-txt'){saveFreeTxt();return;}
+      if(act==='free-preset-save'){
+        const name=String(state.freePresetName||'').trim().slice(0,70),d=state.settings.freeDraft;
+        if(!name)return flash('프리셋 이름을 입력해 줘.');
+        if(!d.prompt.trim())return flash('저장할 프롬프트가 없어.');
+        const prev=state.freePresets.find(p=>p.name===name);
+        if(prev&&!confirm(`프리셋 "${name}"을 덮어쓸까?`))return;
+        const item=prev||{id:uid(),name,prompt:'',title:''};item.prompt=d.prompt;item.title=d.title;
+        if(!prev)state.freePresets.push(item);
+        state.freePresetSelection=item.id;await saveFreePresets();render();flash(`프리셋 저장: ${name}`);return;
+      }
+      if(act==='free-preset-load'){
+        const p=selectedFreePreset();if(!p)return flash('불러올 프리셋을 선택해 줘.');
+        state.settings.freeDraft.prompt=p.prompt;state.settings.freeDraft.title=p.title;
+        state.freePresetName=p.name;await saveSettings();render();flash(`프리셋 적용: ${p.name}`);return;
+      }
+      if(act==='free-preset-delete'){
+        const p=selectedFreePreset();if(!p)return;
+        if(!confirm(`공용 프리셋 "${p.name}"을 삭제할까?`))return;
+        state.freePresets=state.freePresets.filter(x=>x.id!==p.id);
+        state.freePresetSelection='';state.freePresetName='';await saveFreePresets();render();flash('프리셋 삭제 완료');return;
+      }
+      if (act==='kind'||act==='settings-kind') {state.focused=false;state.tabletPane='viewer';state.quote=null;state.boardQuery=''; state.wikiQuery=''; state.wikiTab='article';state.xQuery='';state.xFilter='all';state.expandedX.clear();state.newsCategory='전체';state.type=btn.dataset.kind;state.view='home';state.selectedRecord='';state.subIndex=0;state.settings.lastTab=state.type;state.presetSelection='';state.presetName='';state.freePresetSelection='';state.freePresetName='';if(act==='kind')state.tab='viewer';await saveSettings();render();return; }
       if (act==='tab') {state.tab=btn.dataset.tab;state.globalDeleteConfirm=null;render();return;}
       if (act==='profile-person') {state.profilePerson=btn.dataset.person||'';render();return;}
       if (act==='profile-add') {
@@ -2995,6 +3208,13 @@
     if(field==='xSearch'){state.xQuery=target.value;const q=state.xQuery.toLocaleLowerCase('ko-KR').trim();panel.querySelectorAll('.x-post').forEach(el=>{el.style.display=(!q || el.textContent.toLocaleLowerCase('ko-KR').includes(q))?'':'none';});return;}
     if(field==='pcBrowserSearch'){state.pcBrowserQuery=target.value;const q=target.value.toLocaleLowerCase('ko-KR').trim();panel.querySelectorAll('.pc-history-row').forEach(el=>{el.style.display=!q||el.textContent.toLocaleLowerCase('ko-KR').includes(q)?'':'none';});return;}
     if(field==='boardSearch'){state.boardQuery=target.value;const key=target.value.toLocaleLowerCase('ko-KR').trim();panel.querySelectorAll('[data-post-row]').forEach(row=>row.hidden=!!key&&!row.dataset.search.toLocaleLowerCase('ko-KR').includes(key));return;}
+    if(field==='freeTitle'){state.settings.freeDraft.title=target.value.slice(0,120);queueSave();return;}
+    if(field==='freePrompt'){state.settings.freeDraft.prompt=target.value.slice(0,120000);queueSave();return;}
+    if(field==='freePresetName'){state.freePresetName=target.value.slice(0,70);return;}
+    if(['freeRecentTurns','freeRangeFrom','freeRangeTo'].includes(field)){
+      const key={freeRecentTurns:'recentTurns',freeRangeFrom:'rangeFrom',freeRangeTo:'rangeTo'}[field];
+      state.settings.freeDraft[key]=clamp(target.value,1,2000);queueSave();return;
+    }
     if(field==='presetName'){state.presetName=target.value.slice(0,70);return;}
     if(field==='characterProfile'){
       const name=String(target.dataset.person||'').slice(0,60);
@@ -3020,6 +3240,17 @@
     const target=e.target;if (!target.dataset?.field) return;
     const field=target.dataset.field;
     if(field==='wikiSearch'||field==='xSearch'){render();return;}
+    if(field==='freePresetSelect'){state.freePresetSelection=target.value;state.freePresetName=selectedFreePreset()?.name||'';render();return;}
+    if(field==='freeRef'){
+      if(!FREE_REF_KEYS.includes(target.dataset.ref))return;
+      state.settings.freeDraft.refs[target.dataset.ref]=!!target.checked;queueSave();render();return;
+    }
+    if(field==='freeCharacter'){state.settings.freeDraft.character=target.value.slice(0,60);queueSave();return;}
+    if(field==='freeRangeMode'){state.settings.freeDraft.rangeMode=target.value==='range'?'range':'recent';queueSave();render();return;}
+    if(field==='freeOutputCap'){
+      state.settings.freeDraft.outputCap=FREE_CAPS.some(x=>x[0]===Number(target.value))?Number(target.value):8192;
+      queueSave();render();return;
+    }
     if(field==='presetSelect'){state.presetSelection=target.value;state.presetName=selectedPreset(state.type)?.name||'';render();return;}
     if(field==='theme'){state.settings.themes[target.dataset.kind]=validTheme(target.dataset.kind,target.value);state.view='home';state.subIndex=0;state.subIndex2=0;state.expandedX.clear();queueSave();render();return;}
     if(field==='krwPerUsd'){state.settings.krwPerUsd=clamp(target.value,1,100000);queueSave();updateEstimatePanel();return;}
