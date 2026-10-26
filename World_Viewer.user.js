@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         가상세계 열람실 · RP 기록 뷰어
 // @namespace    private-rp-world-viewer
-// @version      0.2.29
+// @version      0.2.30
 // @description  RP 대화 기반 가상 기록 열람실 · 콘텐츠별 테마 · 단체 채팅 · 방 공통 프롬프트 프리셋
 // @match        https://crack.wrtn.ai/*
 // @noframes
@@ -19,7 +19,7 @@
   if (window.__PRIVATE_RP_WORLD_VIEWER_V02__) return;
   window.__PRIVATE_RP_WORLD_VIEWER_V02__ = true;
 
-  const VERSION = '0.2.29';
+  const VERSION = '0.2.30';
   const DB_NAME = 'PrivateRPWorldViewer_v1';
   const API_A = 'https://crack-api.wrtn.ai/crack-gen/v3/chats/';
   const API_B = 'https://contents-api.wrtn.ai/character-chat/v3/chats/';
@@ -2318,6 +2318,13 @@
       }
     },650);
   }
+  // Every content generator shares the same room-level Gemini model setting.
+  // Keeping the selector in the controls column avoids shifting the reader preview.
+  function generationModelPicker() {
+    const model=state.settings.model;
+    const options=state.modelOptions.concat(state.modelOptions.some(x=>x[0]===model)?[]:[[model,model+' (기존 설정)']]);
+    return `<label class="field"><span>생성 모델</span><select data-field="model" aria-label="생성에 사용할 Gemini 모델">${options.map(([id,name])=>`<option value="${esc(id)}" ${id===model?'selected':''}>${text(name,85)} · ${text(id,90)}</option>`).join('')}</select></label>`;
+  }
   function generatorControls() {
     const s = state.settings;
     return `<div class="card stack"><div class="section-header"><b>새 ${typeOf(state.type).label} 기록</b><span class="pill">수동 생성</span></div>
@@ -2325,6 +2332,7 @@
     ${s.rangeMode==='recent' ? `<label class="field"><span>읽을 최근 RP 턴 수</span><input type="number" min="1" max="2000" data-field="recentTurns" value="${s.recentTurns}"></label>` : `<div class="row"><label class="field"><span>시작 턴</span><input type="number" min="1" data-field="rangeFrom" value="${s.rangeFrom}"></label><label class="field"><span>끝 턴</span><input type="number" min="1" data-field="rangeTo" value="${s.rangeTo}"></label></div>`}
     <label class="field"><span>새 기록 생성 분량 · 목표 개수</span><select data-field="outputSize" aria-label="생성 분량과 목표 개수">${Object.entries(OUTPUT_SIZES).map(([key,option])=>`<option value="${key}" ${outputSize(s.outputSize)===key?'selected':''}>${text(option.label,45)} · ${text(sizePreviewText(state.type,key),220)}</option>`).join('')}</select></label>
     ${estimatePanel()}
+    ${generationModelPicker()}
     <button class="button primary" data-act="generate" ${state.busy || !state.room ? 'disabled':''}>✦ ${typeOf(state.type).label} 생성하고 기록에 추가</button>
     ${state.busy ? `<div class="status"><span class="spinning">◌</span><span data-status>${text(state.status)}</span></div>` : ''}
     </div>`;
@@ -2776,7 +2784,9 @@
             ${d.refs.character?`<label class="field"><span>참고할 캐릭터</span><select data-field="freeCharacter"><option value="">등록된 캐릭터 전체</option>${people.map(n=>`<option value="${esc(n)}" ${d.character===n?'selected':''}>${text(n,60)}</option>`).join('')}</select></label>`:''}
             ${d.refs.rp?`<div class="free-range"><div class="row"><label class="toggle"><input type="radio" name="free-range" data-field="freeRangeMode" value="recent" ${d.rangeMode==='recent'?'checked':''}> 최근 N턴</label><label class="toggle"><input type="radio" name="free-range" data-field="freeRangeMode" value="range" ${d.rangeMode==='range'?'checked':''}> 시작~끝 턴</label></div>${d.rangeMode==='recent'?`<label class="field"><span>읽을 최근 RP 턴 수</span><input type="number" data-field="freeRecentTurns" min="1" max="2000" value="${d.recentTurns}"></label>`:`<div class="row free-range-pair"><label class="field"><span>시작 턴</span><input type="number" data-field="freeRangeFrom" min="1" max="2000" value="${d.rangeFrom}"></label><label class="field"><span>끝 턴</span><input type="number" data-field="freeRangeTo" min="1" max="2000" value="${d.rangeTo}"></label></div>`}</div>`:''}
             <label class="field"><span>출력 길이 (상한)</span><select data-field="freeOutputCap">${FREE_CAPS.map(([n,label])=>`<option value="${n}" ${d.outputCap===n?'selected':''}>${label}</option>`).join('')}</select></label>
-            ${freeEstimate()}<button class="button primary" data-act="free-generate" ${state.busy?'disabled':''}>✦ 텍스트 생성하고 기록에 저장</button>
+            ${freeEstimate()}
+            ${generationModelPicker()}
+            <button class="button primary" data-act="free-generate" ${state.busy?'disabled':''}>✦ 텍스트 생성하고 기록에 저장</button>
             ${state.busy?`<div class="status"><span class="spinning">◌</span><span data-status>${text(state.status,180)}</span></div>`:''}</div>
           <div class="card stack"><h4>프롬프트 프리셋</h4>
             <label class="field"><span>저장된 프리셋 (모든 방 공용)</span><select data-field="freePresetSelect"><option value="">선택</option>${[...state.freePresets].sort((a,b)=>a.name.localeCompare(b.name,'ko-KR')).map(p=>`<option value="${esc(p.id)}" ${p.id===state.freePresetSelection?'selected':''}>${text(p.name,80)}</option>`).join('')}</select></label>
