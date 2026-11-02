@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         크랙 요약메모리 관리
 // @namespace    https://crack.wrtn.ai/
-// @version      4.0.0
+// @version      4.1.0
 // @description  단기기억/관계도 자동삭제·일괄삭제, 목표 자동대체, 업데이트 알림.
 // @match        https://crack.wrtn.ai/*
 // @run-at       document-idle
@@ -196,19 +196,26 @@
   }
   async function execute(keys, auto=false, expectedTurn=null) {
     if(processing)return;
+    let originalTab=null;
+    let changed=false;
     processing=true;draw();
     try {
       const view=modal();if(!canEdit(view))throw Error('수정 가능한 요약메모리 창을 열어주세요.');
+      originalTab=tabKey(view);
       const signature=generation(view);
       if(auto && (!signature || signature!==expectedTurn))throw Error('자동 처리 대상 턴이 바뀌었습니다.');
       const fixedChat=chatId();
       const requests=keys.filter(k=>ORDER.includes(k));
       if(!requests.length)return;
-      if(requests.includes('goal')&&!narrow(config.goal.content))throw Error('설정에서 목표 대체 문구를 입력해주세요.');
+      // 목표 문구가 비어 있어도 단기기억/관계도 삭제는 수행할 수 있다.
+      // 목표만 실행한 경우에는 기존과 같이 명확한 오류를 표시한다.
+      const goalEmpty=requests.includes('goal')&&!narrow(config.goal.content);
+      if(goalEmpty && requests.length===1)throw Error('설정에서 목표 대체 문구를 입력해주세요.');
+      const runnable=requests.filter(k=>!(k==='goal'&&goalEmpty));
       // 수정 가능 UI 및 N 대상은 API 요청 전에만 읽는다. 서버 요청 중
       // 요약메모리 창이나 선택 탭의 변화는 중단 조건이 아니다.
       const plan=[];
-      for(const key of ['goal','short','relations'].filter(x=>requests.includes(x))) {
+      for(const key of ['goal','short','relations'].filter(x=>runnable.includes(x))) {
         const panel=await selectTab(key);
         const marks=targetsOnScreen(panel,key);
         if(!marks.length)continue;
@@ -228,12 +235,29 @@
         } else await mutate(key,item,'DELETE',null,fixedChat);
         changes++;
       }
-      if(signature){tries[signature]={...(tries[signature]||{}),...Object.fromEntries(requests.map(k=>[k,true]))};trim(tries,120);store('attempts',tries);}
+      if(signature){tries[signature]={...(tries[signature]||{}),...Object.fromEntries(runnable.map(k=>[k,true]))};trim(tries,120);store('attempts',tries);}
+      changed=changes>0;
       log(`${auto?'자동':'직접'} 적용 완료 (${changes}개)`);
-      notify(changes ? `${changes}개 적용 완료`:'처리할 신규 항목 없음');
+      notify((changes ? `${changes}개 적용 완료`:'처리할 신규 항목 없음')+(goalEmpty?' · 목표 문구 미설정으로 목표 제외':''));
       return true;
     } catch(e) {fail(e.message||String(e));return false;}
-    finally {processing=false;queueScan();draw();}
+    finally {
+      // API 저장 뒤 현재 화면에는 이전 내용이 남을 수 있어 탭을 다시 선택해 갱신한다.
+      // 모달을 닫았다 다시 여는 방식은 사용하지 않는다.
+      try {
+        const view=modal();
+        const desired=originalTab || (view&&tabKey(view));
+        if(view&&desired){
+          if(tabKey(view)===desired && changed){
+            const other=ORDER.find(key=>key!==desired);
+            if(other) {tabs(view)[other]?.click();await delay(100);}
+          }
+          const current=modal();
+          if(current&&tabKey(current)!==desired)tabs(current)[desired]?.click();
+        }
+      } catch(_){}
+      processing=false;queueScan();draw();
+    }
   }
 
   // 업데이트 알림은 페이지 표시만 감지한다. 시스템 알림은 사용하지 않는다.
@@ -320,10 +344,15 @@
     if(!sidebar?.isConnected){
       sidebar=document.createElement('div');sidebar.id='cmm4-side';sidebar.style.cssText='position:fixed;z-index:2147483645;width:96px;';
       const side=sidebar.attachShadow({mode:'open'});
-      side.innerHTML=`<style>${styles}</style><div class="rail"><button class="main" id="all">일괄적용</button><button id="one">일괄삭제</button><button class="gear" id="settings" aria-label="설정" title="설정">⚙</button></div>`;
+      side.innerHTML=`<style>${styles}</style><div class="rail"><button class="main" id="all">일괄적용</button><button id="one">삭제</button><button class="gear" id="settings" aria-label="설정" title="설정">⚙</button></div>`;
       side.getElementById('all').onclick=()=>execute(ORDER);
       side.getElementById('one').onclick=()=>{const view=modal(),key=view&&tabKey(view);if(key)execute([key]);};
       side.getElementById('settings').onclick=openSettings;
+      // 네이티브 모달의 바깥 영역 클릭 핸들러로 이벤트가 전달되지 않게 한다.
+      // Shadow DOM에서 발생하는 pointer/click 이벤트는 host로 다시 전달되므로 host에서 차단.
+      for(const name of ['pointerdown','pointerup','mousedown','mouseup','click','touchstart','touchend']) {
+        sidebar.addEventListener(name,event=>event.stopPropagation());
+      }
       document.body.append(sidebar);
     }
   }
@@ -338,13 +367,43 @@
     const view=modal(),editable=canEdit(view),key=view&&tabKey(view);
     sidebar.style.display=view?'':'none';
     if(view) {
+      // 버튼은 모달 안의 DOM 자식으로 넣는다. 화면에서는 옆에 고정하되,
+      // 크랙의 외부 클릭 감지기는 버튼 클릭을 모달 내부 클릭으로 판정한다.
+      if(sidebar.parentElement!==view)view.appendChild(sidebar);
       const r=view.getBoundingClientRect();let left=r.right+10;
       if(left+100>innerWidth-8)left=Math.max(8,r.left-106);
-      sidebar.style.left=`${Math.round(left)}px`;sidebar.style.top=`${Math.max(8,Math.min(innerHeight-140,r.top+70))}px`;
+      const top=Math.max(8,Math.min(innerHeight-140,r.top+70));
+      // transform/filter가 지정된 조상에서는 fixed 좌표계가 뷰포트가 아닌 해당 조상에 매인다.
+      // 이때는 해당 부모 좌표로 환산하여 기존 사이드 배치를 유지한다.
+      let fixedParent=null;
+      for(let parent=sidebar.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
+        const css=getComputedStyle(parent);
+        if(css.transform!=='none'||css.perspective!=='none'||css.filter!=='none'||css.contain.includes('paint')){fixedParent=parent;break;}
+      }
+      const b=fixedParent?.getBoundingClientRect();
+      const scaleX=b ? b.width/(fixedParent.offsetWidth||b.width||1):1;
+      const scaleY=b ? b.height/(fixedParent.offsetHeight||b.height||1):1;
+      if(fixedParent){
+        sidebar.style.left=`${Math.round((left-b.left)/scaleX)}px`;
+        sidebar.style.top=`${Math.round((top-b.top)/scaleY)}px`;
+      }else{
+        sidebar.style.left=`${Math.round(left)}px`;
+        sidebar.style.top=`${top}px`;
+      }
+      // 잘림이 생기는 변형+overflow 모달에서는 오른쪽 내부 가장자리로 자동 이동.
+      if(fixedParent){
+        for(let el=sidebar.parentElement;el&&el!==document.body;el=el.parentElement){
+          const css=getComputedStyle(el);
+          if(el===fixedParent && /hidden|clip|auto|scroll/.test(css.overflowX)){
+            if(left>=r.right) sidebar.style.left=`${Math.round((r.right-100-b.left)/scaleX)}px`;
+            break;
+          }
+        }
+      }
       const side=sidebar.shadowRoot;
       side.getElementById('all').disabled=processing||!editable;
       side.getElementById('one').disabled=processing||!editable||!key;
-      side.getElementById('one').textContent=key==='goal'?'대체 적용':'일괄삭제';
+      side.getElementById('one').textContent=key==='goal'?'대체':'삭제';
     }
     const slot=shadow.getElementById('sticky-slot');
     if(config.sticky && pending?.key===chatKey()) {
@@ -390,7 +449,7 @@
     setInterval(queueScan,1800);
     window.addEventListener('resize',queueScan,{passive:true});
     window.addEventListener('scroll',queueScan,{passive:true,capture:true});
-    scan();log('v4 실행');
+    scan();log('v4.1 실행');
   }
   if(document.body)init();else document.addEventListener('DOMContentLoaded',init,{once:true});
 })();
